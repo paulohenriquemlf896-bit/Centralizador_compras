@@ -2,92 +2,48 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Matriz de Consolidação - Admin</title>
+    <title>Matriz de Consolidação</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        /* ESTILO PERSONALIZADO DA TABELA */
         .tabela-custom { font-size: 0.8rem; border-color: #000; }
-        
-        .tabela-custom thead th { 
-            background-color: #8B4513; /* Marrom Escuro */
-            color: white; 
-            border: 1px solid #000; 
-            text-align: center; 
-            vertical-align: middle; 
-            text-transform: uppercase;
-            font-weight: bold;
-        }
-        
-        .tabela-custom tbody td { 
-            vertical-align: middle; 
-            text-align: center; 
-            padding: 4px; 
-            border: 1px solid #ccc;
-        }
-        
+        .tabela-custom thead th { background-color: #8B4513; color: white; border: 1px solid #000; text-align: center; vertical-align: middle; text-transform: uppercase; font-weight: bold; }
+        .tabela-custom tbody td { vertical-align: middle; text-align: center; padding: 4px; border: 1px solid #ccc; }
         .col-produto { text-align: left !important; font-weight: bold; width: 220px; background-color: #fff !important; }
         .col-total { background-color: #fdfdfe; font-weight: bold; border-left: 2px solid #000 !important; color: #b71c1c; }
-        
-        /* Inputs da Tabela */
         .input-qtd { width: 50px; text-align: center; border: 1px solid #ced4da; padding: 2px; border-radius: 0; font-size: 0.8rem;}
         .input-money { width: 70px; text-align: center; border: 1px solid #aaa; padding: 2px; color: #000; font-weight: bold; }
-        
-        /* Colunas de Negociação */
         .input-desc { width: 50px; text-align: center; background-color: #e8f0fe; border: 1px solid #0d6efd; color: #0d6efd; font-weight: bold; }
         .valor-fechado { font-weight: bold; color: #198754; background-color: #f8fff9; display: block; padding: 4px; }
         .input-bonif { width: 50px; text-align: center; background-color: #fff3cd; border: 1px solid #ffc107; }
-
-        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-
-        /* Abas */
         .nav-tabs .nav-link { color: #8B4513; font-weight: bold; }
         .nav-tabs .nav-link.active { color: #000; border-color: #dee2e6 #dee2e6 #fff; background-color: #fff; border-top: 3px solid #8B4513; }
-
-        /* ESTILO DAS NOTAS (PEDIDO NOVO) */
-        .card-notas {
-            border: 2px solid #ffc107; /* Borda Amarela destaque */
-            background-color: #fffbe6; /* Fundo levemente amarelo */
-        }
-        .titulo-notas {
-            background-color: #ffc107;
-            color: #000;
-            font-weight: bold;
-            padding: 10px;
-        }
+        .card-notas { border: 2px solid #ffc107; background-color: #fffbe6; }
+        .titulo-notas { background-color: #ffc107; color: #000; font-weight: bold; padding: 10px; }
     </style>
 </head>
 <body class="bg-light">
 
+    <input type="hidden" id="periodo_id_hidden" value="{{ periodo.id }}">
+
     <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
         <div class="container-fluid px-4">
-            <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">
-                <span class="me-2">⬅️</span> Voltar
-            </a>
-            <span class="navbar-text text-white">Consolidação: Medicamentos 2.1</span>
+            <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">⬅️ Voltar</a>
+            <span class="navbar-text text-white">Consolidação: {{ periodo.nome }}</span>
         </div>
     </nav>
 
     <div class="container-fluid px-3 pb-5">
-        
         <div class="d-flex justify-content-between align-items-end mb-3">
+            <div><h5 class="mb-0 fw-bold text-secondary">Matriz de Fechamento</h5></div>
             <div>
-                <h5 class="mb-0 fw-bold text-secondary">Matriz de Fechamento</h5>
-            </div>
-            <div>
-                <button class="btn btn-success shadow" onclick="alert('Salvo com sucesso!')">
-                    💾 Salvar Negociação
-                </button>
+                <button class="btn btn-success shadow" onclick="salvarDados()">💾 Salvar Negociação</button>
             </div>
         </div>
 
         <ul class="nav nav-tabs mb-3" id="labTabs" role="tablist">
             {% for laboratorio, lista_itens in dados.items() %}
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {{ 'active' if loop.first }}" 
-                        id="tab-btn-{{ loop.index }}" 
-                        data-bs-toggle="tab" 
-                        data-bs-target="#tab-content-{{ loop.index }}" 
-                        type="button" role="tab">
+            <li class="nav-item">
+                <button class="nav-link {{ 'active' if loop.first }}" id="tab-btn-{{ loop.index }}" data-bs-toggle="tab" data-bs-target="#tab-content-{{ loop.index }}">
                     {{ laboratorio }}
                 </button>
             </li>
@@ -95,10 +51,8 @@
         </ul>
 
         <div class="tab-content" id="labTabsContent">
-            
             {% for laboratorio, lista_itens in dados.items() %}
             {% set outer_loop = loop %} 
-            
             <div class="tab-pane fade {{ 'show active' if loop.first }}" id="tab-content-{{ loop.index }}" role="tabpanel">
                 
                 <div class="table-responsive shadow-sm bg-white">
@@ -106,18 +60,15 @@
                         <thead>
                             <tr>
                                 <th rowspan="2">PRODUTO</th>
-                                <th rowspan="2">CAIXA<br>EMB.</th>
-                                <th colspan="5">QUANTIDADES POR LOJA</th>
+                                <th rowspan="2">CAIXA</th>
+                                <th colspan="{{ lojas|length }}">QUANTIDADES POR LOJA</th>
                                 <th rowspan="2" style="background-color: #b71c1c;">TOTAL</th>
                                 <th rowspan="2" style="background-color: #444;">PREÇO<br>TABELA</th>
                                 <th colspan="3" style="background-color: #555;">NEGOCIAÇÃO</th>
                             </tr>
                             <tr>
-                                <th>CAMPINA</th>
-                                <th>MACEIÓ</th>
-                                <th>RECIFE</th>
-                                <th>NATAL</th>
-                                <th>PESQ.</th>
+                                {% for loja in lojas %}
+                                    <th>{{ loja.nome[:7] }}</th> {% endfor %}
                                 <th>DESC %</th>
                                 <th>VALOR<br>FECHADO</th>
                                 <th>BONIF %</th>
@@ -125,39 +76,25 @@
                         </thead>
                         <tbody>
                             {% for item in lista_itens %}
-                            <tr id="linha-{{ outer_loop.index }}-{{ loop.index }}">
-                                
+                            <tr id="linha-{{ outer_loop.index }}-{{ loop.index }}" data-prod-id="{{ item.id }}">
                                 <td class="col-produto">{{ item.nome }}</td>
                                 <td style="background-color: #f0f0f0; font-weight: bold;">{{ item.caixa }}</td>
-
-                                <td><input type="number" class="input-qtd loja-input" value="{{ item.campina }}" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-                                <td><input type="number" class="input-qtd loja-input" value="{{ item.maceio }}" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-                                <td><input type="number" class="input-qtd loja-input" value="{{ item.recife }}" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-                                <td><input type="number" class="input-qtd loja-input" value="{{ item.natal }}" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-                                <td><input type="number" class="input-qtd loja-input" value="{{ item.pesqueira }}" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-
-                                <td class="col-total">
-                                    <span class="valor-qtd-total">{{ item.total }}</span>
-                                </td>
-
+                                
+                                {% for loja in lojas %}
                                 <td>
-                                    <input type="number" 
-                                        class="input-money preco-tab" 
-                                        value="{{ item.preco }}" 
-                                        placeholder="0.00" step="0.01" 
-                                        onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')">
+                                    <input type="number" class="input-qtd loja-input" 
+                                           value="{{ item.qtds.get(loja.id, 0) }}" 
+                                           data-loja-id="{{ loja.id }}"
+                                           onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')">
                                 </td>
+                                {% endfor %}
 
-                                <td>
-                                    <input type="number" class="input-desc desconto" placeholder="0" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')">
-                                </td>
-                                <td style="background-color: #f8fff9;">
-                                    <span class="preco-final valor-fechado">0.00</span>
-                                </td>
-                                <td>
-                                    <input type="number" class="input-bonif" placeholder="0">
-                                </td>
-
+                                <td class="col-total"><span class="valor-qtd-total">{{ item.total }}</span></td>
+                                
+                                <td><input type="number" class="input-money preco-tab" value="{{ item.preco }}" step="0.01" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
+                                <td><input type="number" class="input-desc desconto" value="{{ item.desconto }}" placeholder="0" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
+                                <td style="background-color: #f8fff9;"><span class="preco-final valor-fechado">0.00</span></td>
+                                <td><input type="number" class="input-bonif" value="{{ item.bonificacao }}" placeholder="0"></td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -165,34 +102,20 @@
                 </div>
                 
                 <div class="card mt-4 card-notas shadow">
-                    <div class="titulo-notas">
-                        📝 Notas e Observações - {{ laboratorio }}
-                    </div>
+                    <div class="titulo-notas">📝 Notas - {{ laboratorio }}</div>
                     <div class="card-body">
                         <div class="row">
+                            {% for loja in lojas %}
                             <div class="col-md-4 mb-3">
-                                <label class="form-label fw-bold"> Campina Grande</label>
-                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Campina..."></textarea>
+                                <label class="form-label fw-bold">{{ loja.nome }}</label>
+                                <textarea class="form-control form-control-sm obs-loja" rows="2" 
+                                    data-lab="{{ laboratorio }}" data-loja-id="{{ loja.id }}" placeholder="Obs...">{{ obs_map.get(laboratorio ~ '|' ~ loja.id, '') }}</textarea>
                             </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label fw-bold"> Maceió</label>
-                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Maceió..."></textarea>
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label fw-bold"> Recife</label>
-                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Recife..."></textarea>
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label fw-bold"> Natal</label>
-                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Natal..."></textarea>
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label fw-bold"> Pesqueira</label>
-                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Pesqueira..."></textarea>
-                            </div>
+                            {% endfor %}
                             <div class="col-md-4 mb-3">
                                 <label class="form-label fw-bold text-danger">📢 Geral / Fornecedor</label>
-                                <textarea class="form-control form-control-sm border-danger" rows="2" placeholder="Ex: Pedido mínimo, prazo de entrega..."></textarea>
+                                <textarea class="form-control form-control-sm border-danger obs-geral" rows="2" 
+                                    data-lab="{{ laboratorio }}" placeholder="Avisos gerais...">{{ obs_map.get(laboratorio ~ '|GERAL', '') }}</textarea>
                             </div>
                         </div>
                     </div>
@@ -200,41 +123,73 @@
 
             </div>
             {% endfor %}
-
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
     <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            document.querySelectorAll("tbody tr").forEach(tr => { if(tr.id) recalcular(tr.id); });
+        });
+
         function recalcular(idLinha) {
             let linha = document.getElementById(idLinha);
-            
-            // 1. Soma Quantidades das Lojas
             let inputsLojas = linha.querySelectorAll('.loja-input');
             let soma = 0;
-            inputsLojas.forEach(input => {
-                let val = parseInt(input.value);
-                if (!isNaN(val)) soma += val;
-            });
+            inputsLojas.forEach(input => { soma += (parseInt(input.value) || 0); });
             linha.querySelector('.valor-qtd-total').innerText = soma;
 
-            // 2. Calcula Preço Final (Tabela - Desconto)
-            let inputPreco = linha.querySelector('.preco-tab');
-            let inputDesc = linha.querySelector('.desconto');
-            let spanFinal = linha.querySelector('.preco-final');
+            let preco = parseFloat(linha.querySelector('.preco-tab').value) || 0;
+            let desc = parseFloat(linha.querySelector('.desconto').value) || 0;
+            let final = preco - (preco * (desc / 100));
+            linha.querySelector('.preco-final').innerText = final.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
 
-            let preco = parseFloat(inputPreco.value);
-            let desc = parseFloat(inputDesc.value);
+        function salvarDados() {
+            let periodoId = document.getElementById('periodo_id_hidden').value;
+            let produtos = [];
+            let observacoes = [];
 
-            if (isNaN(preco)) preco = 0;
-            if (isNaN(desc)) desc = 0;
+            // 1. COLETA PRODUTOS (Qtds, Preços, Descontos)
+            document.querySelectorAll('tbody tr').forEach(tr => {
+                let prodId = tr.getAttribute('data-prod-id');
+                if (prodId) {
+                    let qtdsLoja = {};
+                    tr.querySelectorAll('.loja-input').forEach(input => {
+                        qtdsLoja[input.getAttribute('data-loja-id')] = input.value;
+                    });
 
-            // Ex: 100 - (10% de 100) = 90
-            let valorDesconto = preco * (desc / 100);
-            let final = preco - valorDesconto;
+                    produtos.push({
+                        produto_id: prodId,
+                        preco: tr.querySelector('.preco-tab').value,
+                        desconto: tr.querySelector('.desconto').value,
+                        bonificacao: tr.querySelector('.input-bonif').value,
+                        qtds: qtdsLoja
+                    });
+                }
+            });
 
-            spanFinal.innerText = final.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            // 2. COLETA OBSERVAÇÕES
+            document.querySelectorAll('textarea').forEach(txt => {
+                observacoes.push({
+                    laboratorio: txt.getAttribute('data-lab'),
+                    loja_id: txt.getAttribute('data-loja-id'), // Se for nulo, é geral
+                    texto: txt.value
+                });
+            });
+
+            // 3. ENVIA TUDO
+            fetch('/admin/salvar_consolidacao', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ periodo_id: periodoId, produtos: produtos, observacoes: observacoes })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if(data.mensagem) alert('✅ ' + data.mensagem);
+                else alert('❌ ' + data.erro);
+            })
+            .catch(err => alert('Erro de conexão.'));
         }
     </script>
 </body>
