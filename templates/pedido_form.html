@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Novo Pedido - {{ nome_periodo }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .table-input { width: 80px; text-align: center; }
+        .lab-badge { font-size: 0.8rem; background-color: #e9ecef; color: #495057; padding: 2px 6px; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-light">
+
+    <nav class="navbar navbar-light bg-white shadow-sm mb-4">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('dashboard_loja') }}">
+                <span class="me-2">⬅️</span> Voltar ao Painel
+            </a>
+            <span class="navbar-text fw-bold text-primary">{{ nome_periodo }}</span>
+        </div>
+    </nav>
+
+    <div class="container mb-5">
+        
+        <ul class="nav nav-tabs mb-3" id="myTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="ceva-tab" data-bs-toggle="tab" data-bs-target="#ceva" type="button" role="tab">
+                    CEVA BOVINO
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="outros-tab" data-bs-toggle="tab" data-bs-target="#outros" type="button" role="tab" disabled>
+                    Outros Laboratórios...
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content bg-white p-4 border border-top-0 rounded-bottom shadow-sm" id="myTabContent">
+            
+            <div class="tab-pane fade show active" id="ceva" role="tabpanel">
+                <h5 class="mb-3 text-primary">Produtos CEVA BOVINO</h5>
+                
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col" style="width: 60%">Produto</th>
+                                <th scope="col" style="width: 20%">Caixa Emb.</th>
+                                <th scope="col" style="width: 20%">Qtd. (Unidades)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for produto in produtos %}
+                            <tr>
+                                <td>
+                                    <strong>{{ produto.nome }}</strong>
+                                    <br>
+                                    <span class="lab-badge">{{ produto.laboratorio }}</span>
+                                </td>
+                                <td class="text-muted small">
+                                    Cx com {{ produto.unidade_caixa }}
+                                </td>
+                                <td>
+                                    <input type="number" class="form-control table-input mx-auto" 
+                                           placeholder="0" min="0"
+                                           data-caixa="{{ produto.unidade_caixa }}"
+                                           onchange="validarCaixa(this)">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="outros" role="tabpanel">...</div>
+        </div>
+
+        <div class="d-grid gap-2 mt-4 mb-5">
+            <button class="btn btn-primary btn-lg shadow" onclick="alert('Isso enviaria o pedido para o Admin!')">
+                ✅ Concluir e Enviar Pedido
+            </button>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        function validarCaixa(input) {
+            // Agora o Javascript busca o valor no atributo data-caixa
+            // Isso evita misturar sintaxe Python dentro dos parênteses da função
+            let tamanhoCaixa = parseInt(input.getAttribute('data-caixa'));
+            let valor = parseInt(input.value);
+
+            // Se o valor for maior que 0 e não for múltiplo da caixa
+            if (!isNaN(valor) && valor > 0 && valor % tamanhoCaixa !== 0) {
+                alert("Atenção! A caixa de embarque é de " + tamanhoCaixa + " unidades. Por favor, ajuste o valor para um múltiplo (Ex: " + tamanhoCaixa + ", " + (tamanhoCaixa*2) + "...).");
+                input.classList.add('is-invalid');
+                // input.value = ""; // (Opcional: limpa o campo se estiver errado)
+            } else {
+                input.classList.remove('is-invalid');
+            }
+        }
+    </script>
+</body>
+</html>
