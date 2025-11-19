@@ -22,7 +22,7 @@
     <div class="container">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h3>Monitoramento de Pedidos</h3>
-            <span class="badge bg-info text-dark">Data Hoje: 12/11/2025</span>
+            <span class="badge bg-info text-dark">Data Hoje: {{ data_hoje }}</span>
         </div>
         
         <div class="row">
@@ -36,35 +36,28 @@
                     <div class="card-body">
                         <h5 class="card-title text-muted mb-3">Status das Filiais</h5>
                         
+                        {% if status_lojas %}
                         <ul class="list-group mb-4">
+                            {% for loja in status_lojas %}
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <div>
-                                    <strong>Maceió</strong>
-                                    <div class="small text-muted">Enviado em 12/11 às 09:30</div>
+                                    <strong>{{ loja.nome }}</strong>
+                                    <div class="small text-muted">{{ loja.detalhe }}</div>
                                 </div>
-                                <span class="badge bg-success rounded-pill">✅ Finalizado</span>
+                                <span class="badge bg-{{ loja.cor }} rounded-pill">{{ loja.texto }}</span>
                             </li>
-                            
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                <div>
-                                    <strong>Campina Grande</strong>
-                                    <div class="small text-muted">Ainda não iniciou</div>
-                                </div>
-                                <span class="badge bg-danger rounded-pill">⏳ Pendente</span>
-                            </li>
-
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                <div>
-                                    <strong>Recife</strong>
-                                    <div class="small text-muted">Editando agora...</div>
-                                </div>
-                                <span class="badge bg-warning text-dark rounded-pill">✏️ Em andamento</span>
-                            </li>
+                            {% endfor %}
                         </ul>
+                        {% else %}
+                            <p class="text-muted">Nenhuma loja cadastrada.</p>
+                        {% endif %}
 
                         <div class="d-grid gap-2">
                             <a href="{{ url_for('consolidacao_pedidos') }}" class="btn btn-outline-primary btn-lg">
                                 📊 Visualizar Matriz de Consolidação
+                            </a>
+                            <a href="{{ url_for('admin_usuarios') }}" class="btn btn-dark">
+                                👥 Gerenciar Usuários e Aprovações
                             </a>
                         </div>
                     </div>

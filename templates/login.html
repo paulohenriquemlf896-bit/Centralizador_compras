@@ -15,7 +15,7 @@
 <body>
 
     <div class="login-card">
-        <img src="{{ url_for('static', filename='img/Logo.png') }}" alt="Logo Central" class="logo-img">
+        <img src="{{ url_for('static', filename='img/logo.jpg') }}" alt="Logo Central" class="logo-img">
         
         <h4 class="text-center mb-4">Acesso ao Sistema</h4>
         
@@ -32,7 +32,12 @@
                 <label for="senha" class="form-label">Senha</label>
                 <input type="password" class="form-control" id="senha" name="senha" required>
             </div>
-            <button type="submit" class="btn btn-custom py-2">Entrar</button>
+            
+            <button type="submit" class="btn btn-custom py-2 mb-3">Entrar</button>
+
+            <div class="text-center">
+                <a href="{{ url_for('register') }}" class="text-decoration-none">Não tem conta? Cadastre-se</a>
+            </div>
         </form>
     </div>
 
