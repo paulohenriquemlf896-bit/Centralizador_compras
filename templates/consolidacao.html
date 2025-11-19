@@ -19,6 +19,9 @@
         .nav-tabs .nav-link.active { color: #000; border-color: #dee2e6 #dee2e6 #fff; background-color: #fff; border-top: 3px solid #8B4513; }
         .card-notas { border: 2px solid #ffc107; background-color: #fffbe6; }
         .titulo-notas { background-color: #ffc107; color: #000; font-weight: bold; padding: 10px; }
+        
+        /* Realce visual quando o campo está focado */
+        input:focus { border: 2px solid #0d6efd !important; background-color: #e7f1ff; outline: none; }
     </style>
 </head>
 <body class="bg-light">
@@ -68,7 +71,8 @@
                             </tr>
                             <tr>
                                 {% for loja in lojas %}
-                                    <th>{{ loja.nome[:7] }}</th> {% endfor %}
+                                    <th>{{ loja.nome[:7] }}</th>
+                                {% endfor %}
                                 <th>DESC %</th>
                                 <th>VALOR<br>FECHADO</th>
                                 <th>BONIF %</th>
@@ -132,6 +136,30 @@
             document.querySelectorAll("tbody tr").forEach(tr => { if(tr.id) recalcular(tr.id); });
         });
 
+        // --- NOVA FUNÇÃO PARA NAVEGAR COM ENTER ---
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                // Se for textarea (notas) deixa o enter funcionar (pular linha)
+                if (event.target.tagName === 'TEXTAREA') return;
+
+                event.preventDefault(); // Bloqueia o submit do formulário
+
+                // Pega todos os inputs da tela que não estão escondidos
+                let inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([disabled])'));
+                let index = inputs.indexOf(event.target);
+
+                // Se achou o input atual e não é o último, move para o próximo
+                if (index > -1 && index < inputs.length - 1) {
+                    let nextInput = inputs[index + 1];
+                    nextInput.focus();
+                    if (nextInput.select) {
+                        nextInput.select(); // Seleciona o texto para digitar por cima fácil
+                    }
+                }
+            }
+        });
+        // -------------------------------------------
+
         function recalcular(idLinha) {
             let linha = document.getElementById(idLinha);
             let inputsLojas = linha.querySelectorAll('.loja-input');
@@ -150,7 +178,6 @@
             let produtos = [];
             let observacoes = [];
 
-            // 1. COLETA PRODUTOS (Qtds, Preços, Descontos)
             document.querySelectorAll('tbody tr').forEach(tr => {
                 let prodId = tr.getAttribute('data-prod-id');
                 if (prodId) {
@@ -169,16 +196,14 @@
                 }
             });
 
-            // 2. COLETA OBSERVAÇÕES
             document.querySelectorAll('textarea').forEach(txt => {
                 observacoes.push({
                     laboratorio: txt.getAttribute('data-lab'),
-                    loja_id: txt.getAttribute('data-loja-id'), // Se for nulo, é geral
+                    loja_id: txt.getAttribute('data-loja-id'),
                     texto: txt.value
                 });
             });
 
-            // 3. ENVIA TUDO
             fetch('/admin/salvar_consolidacao', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

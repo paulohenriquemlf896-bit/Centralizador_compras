@@ -8,9 +8,34 @@
         .table-input { width: 80px; text-align: center; }
         .lab-badge { font-size: 0.8rem; background-color: #e9ecef; color: #495057; padding: 2px 6px; border-radius: 4px; }
         .total-bar { background-color: #f8f9fa; border: 2px solid #e9ecef; border-radius: 8px; }
+        
+        /* Foco e Navegação */
+        input:focus { border: 2px solid #0d6efd !important; background-color: #e7f1ff; outline: none; }
+
+        /* INDICADOR DE STATUS FLUTUANTE */
+        #status-salvamento {
+            position: fixed;
+            top: 80px; /* Logo abaixo do menu */
+            right: 20px;
+            z-index: 1050;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            display: none; /* Começa invisível */
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            transition: opacity 0.3s;
+        }
+        .status-salvando { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .status-sucesso { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status-erro { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
     </style>
 </head>
 <body class="bg-light">
+
+    <input type="hidden" id="periodo_id_hidden" value="{{ periodo_id }}">
+
+    <div id="status-salvamento"></div>
 
     <nav class="navbar navbar-light bg-white shadow-sm mb-4">
         <div class="container">
@@ -22,7 +47,7 @@
     </nav>
 
     <div class="container mb-5">
-        <form method="POST" action="{{ url_for('pedido_form', periodo_id=periodo_id, laboratorio=laboratorio_atual) }}">
+        <form method="POST" id="form-pedido" action="{{ url_for('pedido_form', periodo_id=periodo_id, laboratorio=laboratorio_atual) }}">
             
             <div class="bg-white p-4 border rounded shadow-sm">
                 
@@ -46,13 +71,14 @@
                                 <td class="text-muted small">Cx com {{ produto.unidade_caixa }}</td>
                                 <td>
                                     <input type="number" 
-                                           class="form-control table-input mx-auto item-pedido" 
+                                           class="form-control table-input mx-auto item-pedido inputs-navegaveis autosave-input" 
                                            name="qtd_{{ produto.id }}"
                                            value="{{ itens_salvos.get(produto.id, '') }}"
                                            placeholder="0" min="0"
                                            data-caixa="{{ produto.unidade_caixa }}"
                                            data-preco="{{ produto.preco }}"
-                                           onchange="validarCaixa(this)"
+                                           data-prod-id="{{ produto.id }}"
+                                           onchange="validarEAutoSalvar(this)"
                                            oninput="calcularTotais()">
                                 </td>
                             </tr>
@@ -66,12 +92,9 @@
                     <div><span class="text-muted">Total R$:</span> <strong class="text-success" id="display-valor-total">0,00</strong></div>
                 </div>
 
-                <div class="d-flex gap-2">
-                    <button type="submit" name="acao" value="rascunho" class="btn btn-warning text-dark w-50">
-                        💾 Salvar Rascunho (Voltar)
-                    </button>
-                    <button type="submit" name="acao" value="finalizar" class="btn btn-success w-50">
-                        ✅ Salvar e Concluir
+                <div class="d-grid gap-2 mt-4 mb-3">
+                    <button type="submit" class="btn btn-primary btn-lg shadow">
+                        💾 Salvar Tudo e Voltar
                     </button>
                 </div>
             </div>
@@ -81,17 +104,75 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
-        function validarCaixa(input) {
+        // --- 1. NAVEGAÇÃO COM ENTER (MANTIDA) ---
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                let inputs = Array.from(document.querySelectorAll('.inputs-navegaveis'));
+                let index = inputs.indexOf(event.target);
+                if (index > -1 && index < inputs.length - 1) {
+                    let proximo = inputs[index + 1];
+                    proximo.focus();
+                    proximo.select();
+                }
+            }
+        });
+
+        // --- 2. FUNÇÃO UNIFICADA: VALIDAÇÃO + AUTOSAVE ---
+        function validarEAutoSalvar(input) {
+            // Validação de Caixa
             let tamanhoCaixa = parseInt(input.getAttribute('data-caixa'));
             let valor = parseInt(input.value);
-
             if (!isNaN(valor) && valor > 0 && valor % tamanhoCaixa !== 0) {
-                alert("Atenção! A caixa de embarque é de " + tamanhoCaixa + " unidades. Por favor, ajuste o valor para um múltiplo.");
+                // Se errar a caixa, avisa e não salva ainda (opcional, pode salvar msm assim se quiser)
+                alert("Atenção! A caixa é de " + tamanhoCaixa + " unidades.");
                 input.classList.add('is-invalid');
             } else {
                 input.classList.remove('is-invalid');
+                // Se estiver válido (ou vazio), chama o Autosave
+                salvarItemNoServidor(input);
             }
             calcularTotais(); 
+        }
+
+        // --- 3. A MÁGICA DO AUTOSAVE ---
+        function salvarItemNoServidor(input) {
+            let statusDiv = document.getElementById('status-salvamento');
+            let periodoId = document.getElementById('periodo_id_hidden').value;
+            let prodId = input.getAttribute('data-prod-id');
+            let qtd = input.value;
+
+            // Mostra "Salvando..."
+            statusDiv.style.display = 'block';
+            statusDiv.className = 'status-salvando';
+            statusDiv.innerHTML = '⏳ Salvando...';
+
+            fetch('/api/salvar_item_pedido', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    periodo_id: periodoId,
+                    produto_id: prodId,
+                    quantidade: qtd
+                })
+            })
+            .then(response => {
+                if (response.ok) {
+                    // Sucesso
+                    statusDiv.className = 'status-sucesso';
+                    statusDiv.innerHTML = '✅ Salvo!';
+                    // Esconde depois de 2 segundos
+                    setTimeout(() => { statusDiv.style.display = 'none'; }, 2000);
+                } else {
+                    throw new Error('Erro na resposta');
+                }
+            })
+            .catch(error => {
+                // Erro
+                statusDiv.className = 'status-erro';
+                statusDiv.innerHTML = '❌ Erro ao salvar (verifique a internet)';
+                console.error(error);
+            });
         }
 
         function calcularTotais() {
@@ -113,7 +194,6 @@
             document.getElementById('display-valor-total').innerText = totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
-        // Calcula ao carregar (para exibir valores salvos)
         document.addEventListener("DOMContentLoaded", function() {
             calcularTotais();
         });

@@ -7,11 +7,9 @@
     <style>
         .card-fabricante { transition: transform 0.2s; cursor: pointer; border-left: 5px solid #ccc; }
         .card-fabricante:hover { transform: translateY(-3px); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        
-        .status-nao-iniciado { border-left-color: #dc3545; } /* Vermelho */
-        .status-em-andamento { border-left-color: #ffc107; } /* Amarelo */
-        .status-concluido { border-left-color: #198754; }    /* Verde */
-        
+        .status-nao-iniciado { border-left-color: #dc3545; }
+        .status-em-andamento { border-left-color: #ffc107; }
+        .status-concluido { border-left-color: #198754; }
         .icon-status { font-size: 1.5rem; }
     </style>
 </head>
@@ -26,7 +24,7 @@
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container pb-5">
         
         <div class="mb-4">
             <h4 class="text-secondary">{{ periodo.nome }}</h4>
@@ -46,16 +44,11 @@
                             <div>
                                 <h5 class="card-title mb-1">{{ item.nome }}</h5>
                                 <small class="text-muted">
-                                    {% if item.status == 'concluido' %} 
-                                        Pedido Finalizado em {{ item.data_hora }}
-                                    {% elif item.status == 'andamento' %} 
-                                        Editado em {{ item.data_hora }} ({{ item.itens }} itens)
-                                    {% else %} 
-                                        Toque para iniciar 
-                                    {% endif %}
+                                    {% if item.status == 'concluido' %} Pedido Finalizado
+                                    {% elif item.status == 'andamento' %} Editado ({{ item.itens }} itens)
+                                    {% else %} Toque para iniciar {% endif %}
                                 </small>
                             </div>
-                            
                             <div class="icon-status">
                                 {% if item.status == 'concluido' %} 🟢
                                 {% elif item.status == 'andamento' %} 🟡
@@ -66,6 +59,22 @@
                 </a>
             </div>
             {% endfor %}
+        </div>
+
+        <hr class="my-4">
+        
+        <div class="card shadow-sm border-0">
+            <div class="card-body text-center">
+                <h5 class="card-title">Concluiu todos os laboratórios?</h5>
+                <p class="text-muted">Clique abaixo para enviar o pedido completo deste período para a matriz.</p>
+                
+                <form action="{{ url_for('finalizar_pedido_periodo', periodo_id=periodo.id) }}" method="POST">
+                    <button type="submit" class="btn btn-success btn-lg w-100 py-3 fw-bold shadow" 
+                        onclick="return confirm('Tem certeza? Após enviar, você não poderá mais alterar este pedido.')">
+                        ✅ ENVIAR PEDIDO COMPLETO ({{ periodo.nome }})
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 

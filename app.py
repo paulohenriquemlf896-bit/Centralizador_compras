@@ -77,66 +77,42 @@ class Observacao(db.Model):
 # --- MÁGICA 24 HORAS: GESTÃO AUTOMÁTICA DE DATAS ---
 @app.before_request
 def verificar_datas_e_periodos():
-    # Esta função roda TODA VEZ que alguém acessa o site.
-    # Ela garante que o sistema perceba a mudança de dia automaticamente.
-    
-    # Se for arquivo estático (imagem, css), ignora para não pesar
     if request.endpoint and 'static' in request.endpoint:
         return
 
     hoje = date.today()
     regras = [("Diversos", "DIVERSOS", 1), ("Medicamentos 2.1", "2.1", 10), ("Medicamentos 2.2", "2.2", 17)]
-    
     mudou_algo = False
 
-    # 1. Verifica se precisa FECHAR períodos antigos
     periodos_abertos = Periodo.query.filter_by(ativo=True).all()
     for p in periodos_abertos:
-        # Se a data limite já passou (hoje é maior que limite), fecha o período
         if hoje > p.data_limite:
             p.ativo = False
             mudou_algo = True
 
-    # 2. Verifica se precisa CRIAR períodos novos (do próximo mês)
     for nome_base, grupo, dia_limite in regras:
-        # Define data alvo baseada no dia de hoje
         if hoje.day > dia_limite:
-            # Já passou do dia, o próximo período é mês que vem
-            if hoje.month == 12:
-                mes_alvo, ano_alvo = 1, hoje.year + 1
-            else:
-                mes_alvo, ano_alvo = hoje.month + 1, hoje.year
+            mes_alvo, ano_alvo = (1, hoje.year + 1) if hoje.month == 12 else (hoje.month + 1, hoje.year)
         else:
-            # Ainda não passou, o período é este mês
             mes_alvo, ano_alvo = hoje.month, hoje.year
         
-        # Monta a data limite desse novo período alvo
-        try:
-            data_alvo_obj = date(ano_alvo, mes_alvo, dia_limite)
-        except ValueError: # Tratamento para anos bissextos/fim de mês se necessário
-            data_alvo_obj = date(ano_alvo, mes_alvo, 28)
+        try: data_alvo_obj = date(ano_alvo, mes_alvo, dia_limite)
+        except: data_alvo_obj = date(ano_alvo, mes_alvo, 28)
 
         nome_completo = f"{nome_base} - {data_alvo_obj.strftime('%b/%Y')}"
         
-        # Verifica se já existe
-        existe = Periodo.query.filter_by(grupo_filtro=grupo, mes=mes_alvo, ano=ano_alvo).first()
-        
-        if not existe:
-            # Cria o novo período
+        if not Periodo.query.filter_by(grupo_filtro=grupo, mes=mes_alvo, ano=ano_alvo).first():
             novo = Periodo(nome=nome_completo, grupo_filtro=grupo, data_limite=data_alvo_obj, mes=mes_alvo, ano=ano_alvo, ativo=True)
             db.session.add(novo)
             mudou_algo = True
             
-            # Se criamos um novo, garantimos que o anterior (do mês passado) esteja fechado, caso a lógica 1 tenha falhado
             anterior = Periodo.query.filter(Periodo.grupo_filtro==grupo, Periodo.data_limite < data_alvo_obj, Periodo.ativo==True).first()
-            if anterior:
-                anterior.ativo = False
+            if anterior: anterior.ativo = False
 
-    if mudou_algo:
-        db.session.commit()
+    if mudou_algo: db.session.commit()
 
 
-# --- ROTAS ---
+# --- ROTAS DE AUTENTICAÇÃO ---
 
 @app.route('/')
 def index():
@@ -221,7 +197,6 @@ def excluir_usuario(user_id):
 def dashboard_loja():
     if 'usuario_id' not in session: return redirect(url_for('login'))
     
-    # Para a LOJA, mostramos apenas os períodos ATIVOS (Abertos)
     periodos = Periodo.query.filter_by(ativo=True).order_by(Periodo.data_limite).all()
     info_periodos = []
     
@@ -259,24 +234,21 @@ def pedido_form(periodo_id, laboratorio):
     if 'usuario_id' not in session: return redirect(url_for('login'))
     periodo = Periodo.query.get_or_404(periodo_id)
     
-    # Trava de segurança: Loja não pode editar período fechado (ativo=False)
     if not periodo.ativo and session.get('funcao') != 'Admin':
         return redirect(url_for('dashboard_loja'))
 
     pedido_atual = Pedido.query.filter_by(usuario_id=session['usuario_id'], loja_id=session['loja_id'], periodo_id=periodo.id, status='Aberto').first()
     
     if not pedido_atual:
-        # Se já enviou ou fechou, redireciona (apenas visualização na tela anterior)
         verif = Pedido.query.filter_by(usuario_id=session['usuario_id'], periodo_id=periodo.id, status='Enviado').first()
         if verif: return redirect(url_for('selecao_fabricante', periodo_id=periodo.id))
         
-        # Cria novo apenas se o periodo estiver Ativo
         if periodo.ativo:
             pedido_atual = Pedido(usuario_id=session['usuario_id'], loja_id=session['loja_id'], periodo_id=periodo.id, status='Aberto')
             db.session.add(pedido_atual)
             db.session.commit()
         else:
-             return redirect(url_for('dashboard_loja')) # Não cria pedido em período fechado
+             return redirect(url_for('dashboard_loja'))
 
     if request.method == 'POST':
         try:
@@ -294,9 +266,7 @@ def pedido_form(periodo_id, laboratorio):
                     except: pass
             pedido_atual.data_alteracao = datetime.now()
             db.session.commit()
-            if request.form.get('acao') == 'finalizar':
-                pedido_atual.status = 'Enviado'
-                db.session.commit()
+            # REMOVIDO BOTÃO DE FINALIZAR DAQUI, AGORA VOLTA APENAS
             return redirect(url_for('selecao_fabricante', periodo_id=periodo.id))
         except Exception as e: return f"Erro: {str(e)}"
 
@@ -304,6 +274,22 @@ def pedido_form(periodo_id, laboratorio):
     itens = ItemPedido.query.filter_by(pedido_id=pedido_atual.id).all()
     itens_salvos = {i.produto_id: i.quantidade for i in itens}
     return render_template('pedido_form.html', produtos=produtos, nome_periodo=periodo.nome, laboratorio_atual=laboratorio, itens_salvos=itens_salvos, periodo_id=periodo.id)
+
+# --- NOVA ROTA DE FINALIZAÇÃO ---
+@app.route('/pedido/finalizar/<int:periodo_id>', methods=['POST'])
+def finalizar_pedido_periodo(periodo_id):
+    if 'usuario_id' not in session: return redirect(url_for('login'))
+    
+    pedido = Pedido.query.filter_by(usuario_id=session['usuario_id'], loja_id=session['loja_id'], periodo_id=periodo_id, status='Aberto').first()
+    
+    if pedido:
+        qtd = ItemPedido.query.filter_by(pedido_id=pedido.id).count()
+        if qtd > 0:
+            pedido.status = 'Enviado'
+            pedido.data_alteracao = datetime.now()
+            db.session.commit()
+    
+    return redirect(url_for('dashboard_loja'))
 
 # --- ROTAS ADMIN ---
 
@@ -327,7 +313,6 @@ def dashboard_admin():
         m, a = filtro.split('-')
         q = q.filter_by(mes=int(m), ano=int(a))
     
-    # Admin vê TUDO (Aberto e Fechado)
     periodos_filt = q.order_by(Periodo.ano.desc(), Periodo.mes.desc(), Periodo.data_limite).all()
     todas_lojas = Loja.query.all()
     dados_painel = []
@@ -351,17 +336,8 @@ def dashboard_admin():
 def consolidacao_pedidos():
     if 'usuario_id' not in session or session.get('funcao') != 'Admin': return redirect(url_for('login'))
     
-    # Admin pode ver consolidação de período ativo OU fechado.
-    # Pega o último período criado por padrão se não passar ID
-    # (Idealmente aqui você passaria o ID do período via URL se clicar no dashboard, mas vamos manter simples: pega o último)
-    
-    # Tenta pegar o período que o usuário clicou no dashboard? 
-    # Se não, pega o último ativo. Se não, o último criado.
     periodo_ativo = Periodo.query.filter_by(ativo=True).order_by(Periodo.data_limite).first()
     if not periodo_ativo: periodo_ativo = Periodo.query.order_by(Periodo.id.desc()).first()
-    
-    # (Futuramente podemos passar /consolidacao/<int:periodo_id>)
-    
     if not periodo_ativo: return "Nenhum período."
 
     lojas = Loja.query.order_by(Loja.nome).all()
@@ -395,6 +371,68 @@ def consolidacao_pedidos():
         obs_map[chave] = o.texto
 
     return render_template('consolidacao.html', dados=dados, periodo=periodo_ativo, lojas=lojas, obs_map=obs_map)
+
+@app.route('/api/salvar_item_pedido', methods=['POST'])
+def api_salvar_item_pedido():
+    if 'usuario_id' not in session: 
+        return jsonify({'erro': 'Não logado'}), 401
+    
+    data = request.json
+    periodo_id = data.get('periodo_id')
+    produto_id = data.get('produto_id')
+    
+    try:
+        quantidade = int(data.get('quantidade'))
+    except:
+        quantidade = 0
+
+    if not all([periodo_id, produto_id]):
+        return jsonify({'erro': 'Dados incompletos'}), 400
+
+    try:
+        # 1. Busca ou Cria o Pedido (Igual fizemos no Admin)
+        pedido = Pedido.query.filter_by(
+            usuario_id=session['usuario_id'], 
+            loja_id=session['loja_id'], 
+            periodo_id=periodo_id, 
+            status='Aberto'
+        ).first()
+
+        if not pedido:
+            # Verifica se o periodo está ativo
+            periodo = Periodo.query.get(periodo_id)
+            if not periodo or not periodo.ativo:
+                return jsonify({'erro': 'Período fechado'}), 403
+                
+            pedido = Pedido(
+                usuario_id=session['usuario_id'], 
+                loja_id=session['loja_id'], 
+                periodo_id=periodo_id, 
+                status='Aberto'
+            )
+            db.session.add(pedido)
+            db.session.flush() # Garante o ID
+
+        # 2. Salva ou Remove o Item
+        item = ItemPedido.query.filter_by(pedido_id=pedido.id, produto_id=produto_id).first()
+        
+        if item:
+            if quantidade > 0:
+                item.quantidade = quantidade
+            else:
+                db.session.delete(item)
+        elif quantidade > 0:
+            db.session.add(ItemPedido(pedido_id=pedido.id, produto_id=produto_id, quantidade=quantidade))
+        
+        # Atualiza hora da alteração
+        pedido.data_alteracao = datetime.now()
+        db.session.commit()
+        
+        return jsonify({'status': 'salvo', 'hora': datetime.now().strftime('%H:%M:%S')})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'erro': str(e)}), 500
 
 @app.route('/admin/salvar_consolidacao', methods=['POST'])
 def salvar_consolidacao():
