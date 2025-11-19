@@ -14,15 +14,15 @@
 
     <nav class="navbar navbar-light bg-white shadow-sm mb-4">
         <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('selecao_fabricante') }}">
+            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('selecao_fabricante', periodo_id=periodo_id) }}">
                 <span class="me-2">⬅️</span> Voltar
             </a>
-            <span class="navbar-text fw-bold text-primary">{{ laboratorio_atual }}</span>
+            <span class="navbar-text fw-bold text-primary">{{ laboratorio_atual }} - {{ nome_periodo }}</span>
         </div>
     </nav>
 
     <div class="container mb-5">
-        <form method="POST" action="{{ url_for('pedido_form', laboratorio=laboratorio_atual) }}">
+        <form method="POST" action="{{ url_for('pedido_form', periodo_id=periodo_id, laboratorio=laboratorio_atual) }}">
             
             <div class="bg-white p-4 border rounded shadow-sm">
                 
@@ -113,7 +113,7 @@
             document.getElementById('display-valor-total').innerText = totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
-        // Calcula os totais assim que a página abrir (para carregar dados salvos)
+        // Calcula ao carregar (para exibir valores salvos)
         document.addEventListener("DOMContentLoaded", function() {
             calcularTotais();
         });

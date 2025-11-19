@@ -8,7 +8,6 @@
         .card-fabricante { transition: transform 0.2s; cursor: pointer; border-left: 5px solid #ccc; }
         .card-fabricante:hover { transform: translateY(-3px); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         
-        /* Cores baseadas no status */
         .status-nao-iniciado { border-left-color: #dc3545; } /* Vermelho */
         .status-em-andamento { border-left-color: #ffc107; } /* Amarelo */
         .status-concluido { border-left-color: #198754; }    /* Verde */
@@ -28,10 +27,16 @@
     </nav>
 
     <div class="container">
+        
+        <div class="mb-4">
+            <h4 class="text-secondary">{{ periodo.nome }}</h4>
+            <small class="text-muted">Limite até: {{ periodo.data_limite.strftime('%d/%m/%Y') }}</small>
+        </div>
+
         <div class="row">
             {% for item in lista_fabricantes %}
             <div class="col-md-4 mb-4">
-                <a href="{{ url_for('pedido_form', laboratorio=item.nome) }}" class="text-decoration-none text-dark">
+                <a href="{{ url_for('pedido_form', periodo_id=periodo.id, laboratorio=item.nome) }}" class="text-decoration-none text-dark">
                     <div class="card card-fabricante h-100 shadow-sm 
                         {% if item.status == 'concluido' %} status-concluido 
                         {% elif item.status == 'andamento' %} status-em-andamento 

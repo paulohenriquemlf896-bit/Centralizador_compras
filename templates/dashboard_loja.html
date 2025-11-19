@@ -9,8 +9,7 @@
     <nav class="navbar navbar-light bg-white shadow-sm mb-4">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="#">
-                <span class="me-2">💊</span>
-                Central de Compras
+                <span class="me-2">💊</span> Central de Compras
             </a>
             <span class="navbar-text">Olá, {{ nome }} | <a href="/logout" class="text-danger text-decoration-none">Sair</a></span>
         </div>
@@ -18,38 +17,44 @@
 
     <div class="container">
         <h3>Períodos de Compra</h3>
-        <p class="text-muted">Selecione o período aberto para iniciar seu pedido.</p>
+        <p class="text-muted">Confira as datas limites e faça seus pedidos.</p>
         
         <div class="row mt-4">
-            <div class="col-md-6 mb-3">
-                <div class="card border-success h-100">
+            {% for p in periodos %}
+            <div class="col-md-4 mb-4">
+                <div class="card border-{{ p.cor }} h-100 shadow-sm">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <strong class="text-{{ p.cor }}">{{ p.nome }}</strong>
+                        <span class="badge bg-{{ p.cor }}">{{ p.status }}</span>
+                    </div>
                     <div class="card-body">
-                        <h5 class="card-title text-success">🟢 Medicamentos 2.1</h5>
-                        <p class="card-text mb-1">Período Aberto. Encerra dia 17/11.</p>
+                        <p class="card-text small text-muted mb-2">
+                            📅 Limite: <strong>{{ p.limite }}</strong>
+                        </p>
                         
-                        {% if pedido and pedido.data_alteracao %}
-                            <small class="text-muted d-block mb-3">
-                                📅 Editado última vez em {{ pedido.data_alteracao.strftime('%d/%m às %H:%M') }}
-                            </small>
-                        {% endif %}
-
-                        <a href="{{ url_for('selecao_fabricante') }}" class="btn btn-success w-100">
-                            Iniciar / Continuar Pedido
+                        <p class="card-text text-secondary mb-3">
+                            {{ p.detalhe }}
+                        </p>
+                        
+                        <a href="{{ url_for('selecao_fabricante', periodo_id=p.id) }}" class="btn btn-outline-{{ p.cor }} w-100">
+                            {% if p.status == 'Enviado' %} 
+                                👁️ Visualizar Pedido 
+                            {% else %} 
+                                🛒 Fazer Pedido 
+                            {% endif %}
                         </a>
-                        
                     </div>
                 </div>
             </div>
-            
-            <div class="col-md-6 mb-3">
-                <div class="card bg-light text-muted h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">🔴 Diversos</h5>
-                        <p class="card-text">Fechado. Próxima abertura em 01/12.</p>
-                        <button class="btn btn-secondary w-100" disabled>Indisponível</button>
-                    </div>
+            {% endfor %}
+
+            {% if not periodos %}
+            <div class="col-12">
+                <div class="alert alert-secondary text-center">
+                    Nenhum período de compras aberto no momento.
                 </div>
             </div>
+            {% endif %}
         </div>
     </div>
 </body>
