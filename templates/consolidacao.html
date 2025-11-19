@@ -5,11 +5,11 @@
     <title>Matriz de Consolidação - Admin</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        /* ESTILO PERSONALIZADO DA TABELA (MARROM) */
+        /* ESTILO PERSONALIZADO DA TABELA */
         .tabela-custom { font-size: 0.8rem; border-color: #000; }
         
         .tabela-custom thead th { 
-            background-color: #8B4513; 
+            background-color: #8B4513; /* Marrom Escuro */
             color: white; 
             border: 1px solid #000; 
             text-align: center; 
@@ -28,18 +28,35 @@
         .col-produto { text-align: left !important; font-weight: bold; width: 220px; background-color: #fff !important; }
         .col-total { background-color: #fdfdfe; font-weight: bold; border-left: 2px solid #000 !important; color: #b71c1c; }
         
+        /* Inputs da Tabela */
         .input-qtd { width: 50px; text-align: center; border: 1px solid #ced4da; padding: 2px; border-radius: 0; font-size: 0.8rem;}
         .input-money { width: 70px; text-align: center; border: 1px solid #aaa; padding: 2px; color: #000; font-weight: bold; }
-        .valor-fechado-bg { background-color: #fff3cd; font-weight: bold; color: #000; }
         
+        /* Colunas de Negociação */
+        .input-desc { width: 50px; text-align: center; background-color: #e8f0fe; border: 1px solid #0d6efd; color: #0d6efd; font-weight: bold; }
+        .valor-fechado { font-weight: bold; color: #198754; background-color: #f8fff9; display: block; padding: 4px; }
+        .input-bonif { width: 50px; text-align: center; background-color: #fff3cd; border: 1px solid #ffc107; }
+
         input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
-        /* Ajuste das Abas para ficarem bonitas */
+        /* Abas */
         .nav-tabs .nav-link { color: #8B4513; font-weight: bold; }
         .nav-tabs .nav-link.active { color: #000; border-color: #dee2e6 #dee2e6 #fff; background-color: #fff; border-top: 3px solid #8B4513; }
+
+        /* ESTILO DAS NOTAS (PEDIDO NOVO) */
+        .card-notas {
+            border: 2px solid #ffc107; /* Borda Amarela destaque */
+            background-color: #fffbe6; /* Fundo levemente amarelo */
+        }
+        .titulo-notas {
+            background-color: #ffc107;
+            color: #000;
+            font-weight: bold;
+            padding: 10px;
+        }
     </style>
 </head>
-<body>
+<body class="bg-light">
 
     <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
         <div class="container-fluid px-4">
@@ -50,14 +67,16 @@
         </div>
     </nav>
 
-    <div class="container-fluid px-2">
+    <div class="container-fluid px-3 pb-5">
         
         <div class="d-flex justify-content-between align-items-end mb-3">
             <div>
-                <h5 class="mb-0">Matriz de Fechamento</h5>
+                <h5 class="mb-0 fw-bold text-secondary">Matriz de Fechamento</h5>
             </div>
             <div>
-                <button class="btn btn-success btn-sm shadow" onclick="alert('Salvo!')">💾 Salvar Alterações</button>
+                <button class="btn btn-success shadow" onclick="alert('Salvo com sucesso!')">
+                    💾 Salvar Negociação
+                </button>
             </div>
         </div>
 
@@ -82,7 +101,7 @@
             
             <div class="tab-pane fade {{ 'show active' if loop.first }}" id="tab-content-{{ loop.index }}" role="tabpanel">
                 
-                <div class="table-responsive">
+                <div class="table-responsive shadow-sm bg-white">
                     <table class="table table-bordered table-hover tabela-custom mb-0">
                         <thead>
                             <tr>
@@ -121,19 +140,62 @@
                                     <span class="valor-qtd-total">{{ item.total }}</span>
                                 </td>
 
-                                <td><input type="number" class="input-money preco-tab" placeholder="0.00" step="0.01" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-                                <td><input type="number" class="input-money desconto" placeholder="0" step="0.1" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-                                <td class="valor-fechado-bg"><span class="preco-final">0.00</span></td>
-                                <td><input type="number" class="input-money" placeholder="0" step="0.1"></td>
+                                <td>
+                                    <input type="number" 
+                                        class="input-money preco-tab" 
+                                        value="{{ item.preco }}" 
+                                        placeholder="0.00" step="0.01" 
+                                        onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')">
+                                </td>
+
+                                <td>
+                                    <input type="number" class="input-desc desconto" placeholder="0" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')">
+                                </td>
+                                <td style="background-color: #f8fff9;">
+                                    <span class="preco-final valor-fechado">0.00</span>
+                                </td>
+                                <td>
+                                    <input type="number" class="input-bonif" placeholder="0">
+                                </td>
+
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
                 
-                <div class="mt-3 p-2 bg-light border rounded">
-                    <small class="fw-bold text-muted">Notas sobre {{ laboratorio }}:</small>
-                    <input type="text" class="form-control form-control-sm" placeholder="Ex: Pedido mínimo atingido...">
+                <div class="card mt-4 card-notas shadow">
+                    <div class="titulo-notas">
+                        📝 Notas e Observações - {{ laboratorio }}
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold"> Campina Grande</label>
+                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Campina..."></textarea>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold"> Maceió</label>
+                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Maceió..."></textarea>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold"> Recife</label>
+                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Recife..."></textarea>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold"> Natal</label>
+                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Natal..."></textarea>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold"> Pesqueira</label>
+                                <textarea class="form-control form-control-sm" rows="2" placeholder="Obs para Pesqueira..."></textarea>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold text-danger">📢 Geral / Fornecedor</label>
+                                <textarea class="form-control form-control-sm border-danger" rows="2" placeholder="Ex: Pedido mínimo, prazo de entrega..."></textarea>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
             </div>
@@ -148,7 +210,7 @@
         function recalcular(idLinha) {
             let linha = document.getElementById(idLinha);
             
-            // 1. Soma Quantidades
+            // 1. Soma Quantidades das Lojas
             let inputsLojas = linha.querySelectorAll('.loja-input');
             let soma = 0;
             inputsLojas.forEach(input => {
@@ -157,7 +219,7 @@
             });
             linha.querySelector('.valor-qtd-total').innerText = soma;
 
-            // 2. Calcula Preço (Tab - Desc)
+            // 2. Calcula Preço Final (Tabela - Desconto)
             let inputPreco = linha.querySelector('.preco-tab');
             let inputDesc = linha.querySelector('.desconto');
             let spanFinal = linha.querySelector('.preco-final');
@@ -168,11 +230,11 @@
             if (isNaN(preco)) preco = 0;
             if (isNaN(desc)) desc = 0;
 
-            // Ex: 100 - (100 * 10 / 100) = 90
+            // Ex: 100 - (10% de 100) = 90
             let valorDesconto = preco * (desc / 100);
             let final = preco - valorDesconto;
 
-            spanFinal.innerText = final.toFixed(2);
+            spanFinal.innerText = final.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
     </script>
 </body>
