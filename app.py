@@ -289,29 +289,62 @@ def pedido_form(periodo_id, laboratorio):
 def dashboard_admin():
     if 'usuario_id' not in session: return redirect(url_for('login'))
     
-    # Mostra TODOS os períodos (incluindo os passados para histórico)
-    # Aqui você poderia colocar um filtro para mostrar só os últimos 3 meses, etc.
-    periodos = Periodo.query.order_by(Periodo.ano.desc(), Periodo.mes.desc(), Periodo.data_limite).all()
-    todas_lojas = Loja.query.all()
+    # 1. PREPARAÇÃO DO FILTRO DE MESES
+    # Pega todos os períodos para montar o dropdown de opções (ex: Nov/2025, Dez/2025)
+    todos_periodos = Periodo.query.order_by(Periodo.ano.desc(), Periodo.mes.desc()).all()
+    opcoes_meses = []
+    meses_vistos = set()
     
+    # Dicionário para nome dos meses em Português
+    nomes_meses = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 
+                   7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
+
+    for p in todos_periodos:
+        chave = f"{p.mes}-{p.ano}" # Ex: "11-2025"
+        if chave not in meses_vistos:
+            opcoes_meses.append({
+                'valor': chave,
+                'texto': f"{nomes_meses[p.mes]}/{p.ano}"
+            })
+            meses_vistos.add(chave)
+    
+    # 2. APLICA O FILTRO (SE O USUÁRIO ESCOLHEU ALGUM)
+    filtro_atual = request.args.get('filtro_data') # Vem da URL ?filtro_data=11-2025
+    
+    query = Periodo.query
+    if filtro_atual:
+        mes_f, ano_f = filtro_atual.split('-')
+        query = query.filter_by(mes=int(mes_f), ano=int(ano_f))
+    
+    # Ordena para mostrar os mais recentes primeiro
+    periodos_filtrados = query.order_by(Periodo.ano.desc(), Periodo.mes.desc(), Periodo.data_limite).all()
+    
+    # 3. MONTA OS DADOS DO PAINEL (IGUAL ANTES, MAS USANDO A LISTA FILTRADA)
+    todas_lojas = Loja.query.all()
     dados_painel = []
-    for p in periodos:
+
+    for p in periodos_filtrados:
         status_lojas = []
         for loja in todas_lojas:
             pedido = Pedido.query.filter_by(loja_id=loja.id, periodo_id=p.id).order_by(Pedido.id.desc()).first()
             info = { 'nome': loja.nome, 'cor': 'danger', 'texto': '⏳ Pendente', 'detalhe': 'Não iniciou' }
+            
             if pedido:
                 if pedido.status == 'Enviado':
                     info.update({'cor': 'success', 'texto': '✅ Finalizado', 'detalhe': f"Enviado {pedido.data_alteracao.strftime('%d/%m')}"})
                 elif pedido.status == 'Aberto':
                     qtd = ItemPedido.query.filter_by(pedido_id=pedido.id).count()
                     if qtd > 0: info.update({'cor': 'warning text-dark', 'texto': '✏️ Editando', 'detalhe': 'Em andamento'})
+            
             status_lojas.append(info)
+        
         dados_painel.append({'periodo': p, 'lojas': status_lojas})
 
     return render_template('dashboard_admin.html', 
                            nome=session['nome'], 
                            dados_painel=dados_painel, 
+                           opcoes_meses=opcoes_meses, # Envia opções pro HTML
+                           filtro_atual=filtro_atual, # Envia a escolha atual pro HTML
                            data_hoje=datetime.now().strftime('%d/%m/%Y'))
 
 @app.route('/admin/consolidacao')
