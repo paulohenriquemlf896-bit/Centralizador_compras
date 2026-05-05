@@ -4,217 +4,384 @@
     <meta charset="UTF-8">
     <title>Matriz de Consolidação</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        .tabela-custom { font-size: 0.8rem; border-color: #000; }
-        .tabela-custom thead th { background-color: #8B4513; color: white; border: 1px solid #000; text-align: center; vertical-align: middle; text-transform: uppercase; font-weight: bold; }
-        .tabela-custom tbody td { vertical-align: middle; text-align: center; padding: 4px; border: 1px solid #ccc; }
-        .col-produto { text-align: left !important; font-weight: bold; width: 220px; background-color: #fff !important; }
-        .col-total { background-color: #fdfdfe; font-weight: bold; border-left: 2px solid #000 !important; color: #b71c1c; }
-        .input-qtd { width: 50px; text-align: center; border: 1px solid #ced4da; padding: 2px; border-radius: 0; font-size: 0.8rem;}
-        .input-money { width: 70px; text-align: center; border: 1px solid #aaa; padding: 2px; color: #000; font-weight: bold; }
-        .input-desc { width: 50px; text-align: center; background-color: #e8f0fe; border: 1px solid #0d6efd; color: #0d6efd; font-weight: bold; }
-        .valor-fechado { font-weight: bold; color: #198754; background-color: #f8fff9; display: block; padding: 4px; }
-        .input-bonif { width: 50px; text-align: center; background-color: #fff3cd; border: 1px solid #ffc107; }
         .nav-tabs .nav-link { color: #8B4513; font-weight: bold; }
         .nav-tabs .nav-link.active { color: #000; border-color: #dee2e6 #dee2e6 #fff; background-color: #fff; border-top: 3px solid #8B4513; }
-        .card-notas { border: 2px solid #ffc107; background-color: #fffbe6; }
-        .titulo-notas { background-color: #ffc107; color: #000; font-weight: bold; padding: 10px; }
-        
-        /* Realce visual quando o campo está focado */
-        input:focus { border: 2px solid #0d6efd !important; background-color: #e7f1ff; outline: none; }
+        .busca-container { max-width: 400px; margin-bottom: 15px; }
+        .preco-tab.preco-alterado { border: 2px solid #dc3545 !important; background-color: #fff5f5; }
+        .preco-tab.preco-alterado:focus { border: 2px solid #dc3545 !important; }
+        .badge-preco-original { font-size: 0.65rem; color: #888; display: block; margin-top: 2px; }
+        .spinner-aba { min-height: 200px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
     </style>
 </head>
 <body class="bg-light">
 
     <input type="hidden" id="periodo_id_hidden" value="{{ periodo.id }}">
 
+    <div class="modal fade" id="modalConfirmarPreco" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content border-danger">
+                <div class="modal-header bg-danger text-white">
+                    <h6 class="modal-title fw-bold">⚠️ Alterar Preço de Tabela?</h6>
+                </div>
+                <div class="modal-body text-center small">
+                    <p class="mb-1">Produto: <strong id="modalNomeProd"></strong></p>
+                    <p class="mb-1">De: <strong id="modalPrecoAntigo" class="text-muted"></strong></p>
+                    <p class="mb-0">Para: <strong id="modalPrecoNovo" class="text-danger"></strong></p>
+                    <hr class="my-2">
+                    <p class="text-muted" style="font-size:0.75rem;">Isso alterará o preço base do produto permanentemente.</p>
+                </div>
+                <div class="modal-footer p-2 justify-content-center">
+                    <button class="btn btn-sm btn-secondary" id="btnCancelarPreco">Cancelar</button>
+                    <button class="btn btn-sm btn-danger" id="btnConfirmarPreco">Confirmar Alteração</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
         <div class="container-fluid px-4">
             <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">⬅️ Voltar</a>
             <span class="navbar-text text-white">Consolidação: {{ periodo.nome }}</span>
+            <a href="{{ url_for('admin_auditoria') }}" class="btn btn-outline-light btn-sm">📋 Auditoria</a>
         </div>
     </nav>
 
     <div class="container-fluid px-3 pb-5">
+
         <div class="d-flex justify-content-between align-items-end mb-3">
-            <div><h5 class="mb-0 fw-bold text-secondary">Matriz de Fechamento</h5></div>
             <div>
-                <button class="btn btn-success shadow" onclick="salvarDados()">💾 Salvar Negociação</button>
+                <h5 class="mb-2 fw-bold text-secondary">Matriz de Fechamento</h5>
+                <div class="busca-container">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white border-end-0">🔍</span>
+                        <input type="text" id="inputBuscaConsolidacao" class="form-control border-start-0"
+                               placeholder="Buscar produto por nome..." onkeyup="filtrarProdutosConsolidacao()">
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex gap-2 mb-3">
+                <a href="{{ url_for('exportar_excel', periodo_id=periodo.id) }}" class="btn btn-primary shadow">📥 Baixar Excel</a>
+                <button id="btnSalvar" class="btn btn-success shadow" onclick="salvarDados()">💾 Salvar Negociação</button>
             </div>
         </div>
 
-        <ul class="nav nav-tabs mb-3" id="labTabs" role="tablist">
-            {% for laboratorio, lista_itens in dados.items() %}
+        <ul class="nav nav-tabs mb-3 flex-wrap" id="labTabs">
+            {% for lab in laboratorios %}
             <li class="nav-item">
-                <button class="nav-link {{ 'active' if loop.first }}" id="tab-btn-{{ loop.index }}" data-bs-toggle="tab" data-bs-target="#tab-content-{{ loop.index }}">
-                    {{ laboratorio }}
+                <button class="nav-link {{ 'active' if loop.first }}"
+                        data-bs-toggle="tab"
+                        data-bs-target="#tab-content-{{ loop.index }}"
+                        data-lab="{{ lab }}"
+                        data-loaded="false"
+                        onclick="carregarAba(this)">
+                    {{ lab }}
+                    <span class="badge bg-secondary ms-1 badge-total" style="display:none;"></span>
                 </button>
             </li>
             {% endfor %}
         </ul>
 
-        <div class="tab-content" id="labTabsContent">
-            {% for laboratorio, lista_itens in dados.items() %}
-            {% set outer_loop = loop %} 
-            <div class="tab-pane fade {{ 'show active' if loop.first }}" id="tab-content-{{ loop.index }}" role="tabpanel">
-                
-                <div class="table-responsive shadow-sm bg-white">
-                    <table class="table table-bordered table-hover tabela-custom mb-0">
-                        <thead>
-                            <tr>
-                                <th rowspan="2">PRODUTO</th>
-                                <th rowspan="2">CAIXA</th>
-                                <th colspan="{{ lojas|length }}">QUANTIDADES POR LOJA</th>
-                                <th rowspan="2" style="background-color: #b71c1c;">TOTAL</th>
-                                <th rowspan="2" style="background-color: #444;">PREÇO<br>TABELA</th>
-                                <th colspan="3" style="background-color: #555;">NEGOCIAÇÃO</th>
-                            </tr>
-                            <tr>
-                                {% for loja in lojas %}
-                                    <th>{{ loja.nome[:7] }}</th>
-                                {% endfor %}
-                                <th>DESC %</th>
-                                <th>VALOR<br>FECHADO</th>
-                                <th>BONIF %</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in lista_itens %}
-                            <tr id="linha-{{ outer_loop.index }}-{{ loop.index }}" data-prod-id="{{ item.id }}">
-                                <td class="col-produto">{{ item.nome }}</td>
-                                <td style="background-color: #f0f0f0; font-weight: bold;">{{ item.caixa }}</td>
-                                
-                                {% for loja in lojas %}
-                                <td>
-                                    <input type="number" class="input-qtd loja-input" 
-                                           value="{{ item.qtds.get(loja.id, 0) }}" 
-                                           data-loja-id="{{ loja.id }}"
-                                           onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')">
-                                </td>
-                                {% endfor %}
-
-                                <td class="col-total"><span class="valor-qtd-total">{{ item.total }}</span></td>
-                                
-                                <td><input type="number" class="input-money preco-tab" value="{{ item.preco }}" step="0.01" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-                                <td><input type="number" class="input-desc desconto" value="{{ item.desconto }}" placeholder="0" onchange="recalcular('linha-{{ outer_loop.index }}-{{ loop.index }}')"></td>
-                                <td style="background-color: #f8fff9;"><span class="preco-final valor-fechado">0.00</span></td>
-                                <td><input type="number" class="input-bonif" value="{{ item.bonificacao }}" placeholder="0"></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+        <div class="tab-content">
+            {% for lab in laboratorios %}
+            <div class="tab-pane fade {{ 'show active' if loop.first }}" id="tab-content-{{ loop.index }}">
+                <div class="spinner-aba text-center py-5">
+                    <div class="spinner-border text-secondary" role="status"></div>
+                    <p class="mt-2 text-muted small">Carregando {{ lab }}...</p>
                 </div>
-                
-                <div class="card mt-4 card-notas shadow">
-                    <div class="titulo-notas">📝 Notas - {{ laboratorio }}</div>
-                    <div class="card-body">
-                        <div class="row">
-                            {% for loja in lojas %}
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label fw-bold">{{ loja.nome }}</label>
-                                <textarea class="form-control form-control-sm obs-loja" rows="2" 
-                                    data-lab="{{ laboratorio }}" data-loja-id="{{ loja.id }}" placeholder="Obs...">{{ obs_map.get(laboratorio ~ '|' ~ loja.id, '') }}</textarea>
-                            </div>
-                            {% endfor %}
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label fw-bold text-danger">📢 Geral / Fornecedor</label>
-                                <textarea class="form-control form-control-sm border-danger obs-geral" rows="2" 
-                                    data-lab="{{ laboratorio }}" placeholder="Avisos gerais...">{{ obs_map.get(laboratorio ~ '|GERAL', '') }}</textarea>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
             </div>
             {% endfor %}
+        </div>
+
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="liveToast" class="toast align-items-center text-white bg-success border-0">
+            <div class="d-flex">
+                <div class="toast-body fw-bold" id="toastMessage">✅ Dados salvos!</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            document.querySelectorAll("tbody tr").forEach(tr => { if(tr.id) recalcular(tr.id); });
-        });
+        const PERIODO_ID = document.getElementById('periodo_id_hidden').value;
 
-        // --- NOVA FUNÇÃO PARA NAVEGAR COM ENTER ---
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Enter') {
-                // Se for textarea (notas) deixa o enter funcionar (pular linha)
-                if (event.target.tagName === 'TEXTAREA') return;
+        // ── FIX 5: CONTROLE DE ALTERAÇÕES NÃO SALVAS ─────────────────────────
+        let _temAlteracoes = false;
 
-                event.preventDefault(); // Bloqueia o submit do formulário
-
-                // Pega todos os inputs da tela que não estão escondidos
-                let inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([disabled])'));
-                let index = inputs.indexOf(event.target);
-
-                // Se achou o input atual e não é o último, move para o próximo
-                if (index > -1 && index < inputs.length - 1) {
-                    let nextInput = inputs[index + 1];
-                    nextInput.focus();
-                    if (nextInput.select) {
-                        nextInput.select(); // Seleciona o texto para digitar por cima fácil
-                    }
-                }
-            }
-        });
-        // -------------------------------------------
-
-        function recalcular(idLinha) {
-            let linha = document.getElementById(idLinha);
-            let inputsLojas = linha.querySelectorAll('.loja-input');
-            let soma = 0;
-            inputsLojas.forEach(input => { soma += (parseInt(input.value) || 0); });
-            linha.querySelector('.valor-qtd-total').innerText = soma;
-
-            let preco = parseFloat(linha.querySelector('.preco-tab').value) || 0;
-            let desc = parseFloat(linha.querySelector('.desconto').value) || 0;
-            let final = preco - (preco * (desc / 100));
-            linha.querySelector('.preco-final').innerText = final.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        function marcarAlterado() {
+            _temAlteracoes = true;
         }
 
-        function salvarDados() {
-            let periodoId = document.getElementById('periodo_id_hidden').value;
-            let produtos = [];
-            let observacoes = [];
+        // Diálogo nativo do browser ao tentar sair com alterações pendentes
+        window.addEventListener('beforeunload', e => {
+            if (_temAlteracoes) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
 
-            document.querySelectorAll('tbody tr').forEach(tr => {
-                let prodId = tr.getAttribute('data-prod-id');
-                if (prodId) {
-                    let qtdsLoja = {};
-                    tr.querySelectorAll('.loja-input').forEach(input => {
-                        qtdsLoja[input.getAttribute('data-loja-id')] = input.value;
+        // ── 1. LAZY LOADING — carrega cada aba só quando clicada ──────────────
+        function carregarAba(btn) {
+            if (btn.dataset.loaded === 'true') return;
+
+            const pane = document.querySelector(btn.dataset.bsTarget);
+            const lab  = btn.dataset.lab;
+
+            fetch(`/admin/consolidacao/aba/${PERIODO_ID}/${encodeURIComponent(lab)}`)
+                .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+                .then(html => {
+                    pane.innerHTML = html;
+                    btn.dataset.loaded = 'true';
+
+                    // Recalcula só as linhas desta aba
+                    pane.querySelectorAll('tbody tr[id]').forEach(tr => recalcular(tr.id));
+
+                    // FIX 4: Captura estado original de cada linha para diff no salvar
+                    pane.querySelectorAll('tbody tr[data-prod-id]').forEach(tr => {
+                        capturarEstadoOriginal(tr);
                     });
 
-                    produtos.push({
-                        produto_id: prodId,
-                        preco: tr.querySelector('.preco-tab').value,
-                        desconto: tr.querySelector('.desconto').value,
-                        bonificacao: tr.querySelector('.input-bonif').value,
-                        qtds: qtdsLoja
+                    // Badge com total pedido desta aba
+                    const total = Array.from(pane.querySelectorAll('.valor-qtd-total'))
+                        .reduce((s, el) => s + (parseInt(el.textContent) || 0), 0);
+                    if (total > 0) {
+                        const badge = btn.querySelector('.badge-total');
+                        badge.textContent = total;
+                        badge.style.display = '';
+                    }
+
+                    // FIX 4 + 5: Monitora mudanças para marcar linha como alterada
+                    pane.querySelectorAll('input, textarea').forEach(el => {
+                        el.addEventListener('input', () => {
+                            marcarAlterado();
+                            const tr = el.closest('tr');
+                            if (tr) tr.dataset.alterado = 'true';
+                        });
+                        el.addEventListener('change', () => {
+                            marcarAlterado();
+                            const tr = el.closest('tr');
+                            if (tr) tr.dataset.alterado = 'true';
+                        });
                     });
-                }
+                })
+                .catch(err => {
+                    pane.innerHTML = `<div class="alert alert-danger m-3">❌ Erro ao carregar: ${err.message}</div>`;
+                });
+        }
+
+        // Carrega a primeira aba automaticamente
+        document.addEventListener('DOMContentLoaded', () => {
+            const primeiro = document.querySelector('#labTabs .nav-link.active');
+            if (primeiro) carregarAba(primeiro);
+        });
+
+        // ── FIX 4: RASTREAMENTO DE LINHAS ALTERADAS ───────────────────────────
+        function capturarEstadoOriginal(tr) {
+            tr.dataset.alterado = 'false';
+        }
+
+        // ── 2. BUSCA — somente na aba ativa ───────────────────────────────────
+        function filtrarProdutosConsolidacao() {
+            const termo = document.getElementById('inputBuscaConsolidacao').value.toLowerCase().trim();
+            const abaAtiva = document.querySelector('.tab-pane.active');
+            if (!abaAtiva) return;
+            abaAtiva.querySelectorAll('tbody tr').forEach(linha => {
+                const col = linha.querySelector('.col-produto');
+                if (col) linha.style.display = col.textContent.toLowerCase().includes(termo) ? '' : 'none';
+            });
+        }
+
+        // ── 3. RECALCULA PREÇO FECHADO E UNITÁRIO ─────────────────────────────
+        function recalcular(idLinha) {
+            const linha = document.getElementById(idLinha);
+            if (!linha) return;
+            
+            let soma = 0;
+            linha.querySelectorAll('.loja-input').forEach(i => { 
+                const v = parseInt(i.value); 
+                if (!isNaN(v)) soma += v; 
+            });
+            linha.querySelector('.valor-qtd-total').innerText = soma;
+            
+            const preco = parseFloat(linha.querySelector('.preco-tab').value) || 0;
+            const desc  = parseFloat(linha.querySelector('.desconto').value)  || 0;
+            
+            // Calcula os dois valores
+            const precoLiq = preco - (preco * desc / 100);
+            const final = precoLiq * soma;
+            
+            // Atualiza a coluna do Preço Unitário Líquido (se ela existir na linha)
+            const elPrecoLiq = linha.querySelector('.preco-liquido');
+            if (elPrecoLiq) {
+                elPrecoLiq.innerText = precoLiq.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            
+            // Atualiza a coluna do Valor Total Fechado
+            linha.querySelector('.preco-final').innerText = final.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            // Chama a função que atualiza o rodapé passando a linha atual
+            if (typeof window.atualizarResumo === 'function') {
+                window.atualizarResumo(linha);
+            }
+        }
+
+        // ── 3.1. ATUALIZA O RODAPÉ (📊 RESUMO) ────────────────────────────────
+        window.atualizarResumo = function(elemento) {
+            if (!elemento) return;
+            
+            // Pega o container da tabela atual para não somar abas erradas
+            const ctx = elemento.closest('.table-responsive') || document;
+            const linhas = ctx.querySelectorAll('tbody tr[id^="linha-"]');
+            
+            let totalGeral = 0;
+            let valorFechadoTotal = 0;
+            const somasPorLoja = {};
+
+            linhas.forEach(tr => {
+                // Soma as quantidades de cada loja
+                tr.querySelectorAll('.loja-input').forEach(input => {
+                    const lojaId = input.dataset.lojaId;
+                    somasPorLoja[lojaId] = (somasPorLoja[lojaId] || 0) + (parseInt(input.value) || 0);
+                });
+                
+                // Soma a quantidade total geral da linha
+                totalGeral += parseInt(tr.querySelector('.valor-qtd-total')?.textContent) || 0;
+                
+                // Soma o valor financeiro da linha
+                const textoFechado = tr.querySelector('.preco-final')?.textContent.trim().replace(/\./g, '').replace(',', '.') || '0';
+                valorFechadoTotal += parseFloat(textoFechado) || 0;
             });
 
-            document.querySelectorAll('textarea').forEach(txt => {
-                observacoes.push({
-                    laboratorio: txt.getAttribute('data-lab'),
-                    loja_id: txt.getAttribute('data-loja-id'),
-                    texto: txt.value
+            // Injeta os novos valores calculados no rodapé
+            for (const [lojaId, soma] of Object.entries(somasPorLoja)) {
+                const cel = ctx.querySelector(`.resumo-loja-${lojaId}`);
+                if (cel) cel.textContent = soma;
+            }
+            
+            const celTotal = ctx.querySelector('.resumo-total-geral');
+            if (celTotal) celTotal.textContent = totalGeral;
+            
+            const celFechado = ctx.querySelector('.resumo-valor-fechado');
+            if (celFechado) celFechado.textContent = valorFechadoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        // ── 4. NAVEGAÇÃO COM ENTER — só inputs da aba ativa ──────────────────
+        document.addEventListener('keydown', e => {
+            if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA') return;
+            e.preventDefault();
+            const abaAtiva = document.querySelector('.tab-pane.active');
+            if (!abaAtiva) return;
+            const inputs = Array.from(abaAtiva.querySelectorAll('input:not([type="hidden"]):not([disabled])'));
+            const idx = inputs.indexOf(e.target);
+            if (idx > -1 && idx < inputs.length - 1) {
+                inputs[idx + 1].focus();
+                if (inputs[idx + 1].select) inputs[idx + 1].select();
+            }
+        });
+
+        // ── 5. ALERTA AO ALTERAR PREÇO DE TABELA ─────────────────────────────
+        let _inputPrecoAtual = null;
+        let _modalPreco = null;
+
+        function verificarAlteracaoPreco(input) {
+            const original = parseFloat(input.dataset.precoOriginal);
+            const novo     = parseFloat(input.value);
+            if (isNaN(novo) || Math.abs(original - novo) < 0.001) {
+                input.classList.remove('preco-alterado');
+                input.nextElementSibling.style.display = 'none';
+                return;
+            }
+            input.classList.add('preco-alterado');
+            input.nextElementSibling.style.display = 'block';
+            _inputPrecoAtual = input;
+            document.getElementById('modalNomeProd').textContent    = input.dataset.nomeProd;
+            document.getElementById('modalPrecoAntigo').textContent = 'R$ ' + original.toFixed(2).replace('.', ',');
+            document.getElementById('modalPrecoNovo').textContent   = 'R$ ' + novo.toFixed(2).replace('.', ',');
+            _modalPreco = new bootstrap.Modal(document.getElementById('modalConfirmarPreco'));
+            _modalPreco.show();
+        }
+
+        document.getElementById('btnCancelarPreco').addEventListener('click', () => {
+            if (_inputPrecoAtual) {
+                _inputPrecoAtual.value = _inputPrecoAtual.dataset.precoOriginal;
+                _inputPrecoAtual.classList.remove('preco-alterado');
+                _inputPrecoAtual.nextElementSibling.style.display = 'none';
+                recalcular(_inputPrecoAtual.closest('tr').id);
+            }
+            _modalPreco.hide();
+        });
+
+        document.getElementById('btnConfirmarPreco').addEventListener('click', () => {
+            if (_inputPrecoAtual) _inputPrecoAtual.dataset.precoOriginal = _inputPrecoAtual.value;
+            _modalPreco.hide();
+        });
+
+        // ── 6. TOAST ──────────────────────────────────────────────────────────
+        function _mostrarToast(msg, tipo) {
+            const el = document.getElementById('liveToast');
+            document.getElementById('toastMessage').innerText = msg;
+            el.classList.toggle('bg-danger', tipo === 'erro');
+            el.classList.toggle('bg-success', tipo !== 'erro');
+            new bootstrap.Toast(el).show();
+        }
+
+        // ── 7. SALVAR — envia só linhas alteradas + observações (fix 4) ───────
+        function salvarDados() {
+            const produtos = [], observacoes = [];
+            const btn = document.getElementById('btnSalvar');
+            const textoOrig = btn.innerHTML;
+            btn.innerHTML = '⏳ Salvando...';
+            btn.disabled = true;
+
+            // Coleta apenas linhas marcadas como alteradas
+            document.querySelectorAll('tbody tr[data-prod-id]').forEach(tr => {
+                if (tr.dataset.alterado !== 'true') return;
+                const qtds = {};
+                tr.querySelectorAll('.loja-input').forEach(i => { qtds[i.dataset.lojaId] = i.value; });
+                produtos.push({
+                    produto_id:  tr.dataset.prodId,
+                    preco:       tr.querySelector('.preco-tab').value,
+                    desconto:    tr.querySelector('.desconto').value,
+                    bonificacao: tr.querySelector('.input-bonif').value,
+                    qtds
                 });
             });
+
+            // Observações: envia todas as carregadas (são poucas, sem impacto)
+            document.querySelectorAll('textarea[data-lab]').forEach(t => {
+                observacoes.push({ laboratorio: t.dataset.lab, loja_id: t.dataset.lojaId || null, texto: t.value });
+            });
+
+            if (produtos.length === 0 && observacoes.length === 0) {
+                _mostrarToast('ℹ️ Nenhuma alteração para salvar.', 'info');
+                btn.innerHTML = textoOrig;
+                btn.disabled = false;
+                return;
+            }
 
             fetch('/admin/salvar_consolidacao', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ periodo_id: periodoId, produtos: produtos, observacoes: observacoes })
+                body: JSON.stringify({ periodo_id: PERIODO_ID, produtos, observacoes })
             })
-            .then(response => response.json())
-            .then(data => {
-                if(data.mensagem) alert('✅ ' + data.mensagem);
-                else alert('❌ ' + data.erro);
+            .then(r => { if (!r.ok) throw new Error(`Erro ${r.status}`); return r.json(); })
+            .then(d => {
+                if (d.mensagem) {
+                    // Sucesso: reseta flags e libera o beforeunload
+                    document.querySelectorAll('tbody tr[data-prod-id]').forEach(tr => {
+                        tr.dataset.alterado = 'false';
+                    });
+                    _temAlteracoes = false;
+                }
+                _mostrarToast(d.mensagem ? '✅ ' + d.mensagem : '❌ ' + d.erro, d.mensagem ? 'sucesso' : 'erro');
             })
-            .catch(err => alert('Erro de conexão.'));
+            .catch(err => _mostrarToast('⚠️ Erro ao salvar: ' + err.message, 'erro'))
+            .finally(() => { btn.innerHTML = textoOrig; btn.disabled = false; });
         }
     </script>
 </body>

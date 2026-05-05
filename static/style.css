@@ -1,0 +1,282 @@
+/*
+ * style.css — Estilos globais do sistema Central de Compras
+ * FIX 13: Centralizado para evitar duplicação nos templates HTML.
+ * Inclua em todos os templates com:
+ *   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+ */
+
+/* ── Reset / Base ───────────────────────────────────────────────────────── */
+input:focus,
+textarea:focus {
+    border: 2px solid #0d6efd !important;
+    background-color: #e7f1ff;
+    outline: none;
+}
+
+/* ── Navbar padrão ──────────────────────────────────────────────────────── */
+.navbar-brand { font-weight: 600; }
+
+/* ── Cards com hover ────────────────────────────────────────────────────── */
+.card-hover { transition: transform 0.2s, box-shadow 0.2s; }
+.card-hover:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15) !important;
+}
+
+/* ── Botão roxo (admin) ─────────────────────────────────────────────────── */
+.btn-purple { background-color: #6f42c1; color: white; border: none; }
+.btn-purple:hover { background-color: #59359a; color: white; }
+
+/* ── Toast de notificação flutuante ─────────────────────────────────────── */
+#toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+}
+.toast-custom {
+    padding: 12px 20px;
+    border-radius: 50px;
+    color: white;
+    font-weight: bold;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    margin-bottom: 10px;
+    animation: slideIn 0.3s ease-out;
+}
+.toast-bg-erro    { background-color: #dc3545; }
+.toast-bg-sucesso { background-color: #198754; }
+.toast-bg-info    { background-color: #0dcaf0; color: #000; }
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ── Tela de login / cadastro ───────────────────────────────────────────── */
+.login-card {
+    max-width: 400px;
+    width: 100%;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    background: white;
+}
+.card-register {
+    max-width: 600px;
+    width: 100%;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    background: white;
+}
+.logo-img { display: block; margin: 0 auto 20px; max-width: 120px; }
+
+/* ── Admin: token box ───────────────────────────────────────────────────── */
+.token-box {
+    background: #212529;
+    color: #00ff41;
+    font-family: 'Courier New', monospace;
+    font-size: 2rem;
+    letter-spacing: 5px;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    cursor: pointer;
+    border: 2px dashed #444;
+    transition: all 0.3s;
+    user-select: none;
+}
+.token-box:hover { background: #000; border-color: #00ff41; transform: scale(1.02); }
+
+.progress-container {
+    height: 5px;
+    background-color: #e9ecef;
+    width: 100%;
+    margin-top: 10px;
+    border-radius: 2px;
+    overflow: hidden;
+}
+.progress-bar-token {
+    height: 100%;
+    background-color: #dc3545;
+    width: 100%;
+    transition: width 1s linear;
+}
+
+/* ── Dashboard admin: abas e fabricantes ────────────────────────────────── */
+.tab-navigator {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+    padding: 12px 20px;
+    margin-bottom: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.tab-navigator h6 { margin: 0; color: white; font-weight: 600; font-size: 1rem; }
+.btn-arrow {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+.btn-arrow:hover  { background: rgba(255,255,255,0.3); transform: scale(1.1); }
+.btn-arrow:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.tab-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+    transition: all 0.3s;
+}
+.tab-dot.active { background: white; width: 24px; border-radius: 4px; }
+
+.fabricante-item {
+    background: #f8f9fa;
+    border-left: 4px solid #667eea;
+    padding: 10px 15px;
+    margin-bottom: 8px;
+    border-radius: 5px;
+    transition: all 0.2s;
+}
+.fabricante-item:hover { background: #e9ecef; border-left-color: #764ba2; transform: translateX(5px); }
+.fabricante-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white; padding: 4px 12px; border-radius: 20px;
+    font-size: 0.75rem; font-weight: 600;
+}
+
+/* ── Tela de seleção de fabricante (loja) ───────────────────────────────── */
+.card-fabricante {
+    transition: transform 0.2s;
+    cursor: pointer;
+    border-left: 5px solid #ccc;
+}
+.card-fabricante:hover { transform: translateY(-3px); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+.status-nao-iniciado  { border-left-color: #dc3545; }
+.status-em-andamento  { border-left-color: #ffc107; }
+.status-concluido     { border-left-color: #198754; }
+
+/* ── Consolidação: tabela ───────────────────────────────────────────────── */
+.tabela-custom { font-size: 0.8rem; border-color: #000; }
+.tabela-custom thead th {
+    background-color: #8B4513; color: white;
+    border: 1px solid #000; text-align: center; vertical-align: middle;
+    text-transform: uppercase; font-weight: bold;
+}
+.tabela-custom tbody td {
+    vertical-align: middle; text-align: center;
+    padding: 4px; border: 1px solid #ccc;
+}
+.col-produto   { text-align: left !important; font-weight: bold; width: 220px; background-color: #fff !important; }
+.col-total     { background-color: #fdfdfe; font-weight: bold; border-left: 2px solid #000 !important; color: #b71c1c; }
+.input-qtd     { width: 50px; text-align: center; border: 1px solid #ced4da; padding: 2px; border-radius: 0; font-size: 0.8rem; }
+.input-money   { width: 70px; text-align: center; border: 1px solid #aaa; padding: 2px; color: #000; font-weight: bold; }
+.input-desc    { width: 50px; text-align: center; background-color: #e8f0fe; border: 1px solid #0d6efd; color: #0d6efd; font-weight: bold; }
+.input-bonif   { width: 50px; text-align: center; background-color: #fff3cd; border: 1px solid #ffc107; }
+.valor-fechado { font-weight: bold; color: #198754; background-color: #f8fff9; display: block; padding: 4px; }
+.card-notas    { border: 2px solid #ffc107; background-color: #fffbe6; }
+.titulo-notas  { background-color: #ffc107; color: #000; font-weight: bold; padding: 10px; }
+
+/* FIX 7: destaque de preço alterado */
+.preco-tab.preco-alterado { border: 2px solid #dc3545 !important; background-color: #fff5f5; }
+.badge-preco-original { font-size: 0.65rem; color: #888; display: block; margin-top: 2px; }
+
+/* ── Pedido form: busca ─────────────────────────────────────────────────── */
+.linha-oculta { display: none; }
+
+/* ── Loading overlay (envio de e-mails) ─────────────────────────────────── */
+#loadingOverlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(255,255,255,0.8);
+    z-index: 9999; display: none;
+    flex-direction: column; justify-content: center; align-items: center;
+}
+
+/* ── Auditoria: badges de ação ──────────────────────────────────────────── */
+.badge-acao { font-size: 0.75rem; letter-spacing: 0.5px; }
+.detalhe-cell { font-size: 0.8rem; color: #555; max-width: 400px; word-break: break-word; }
+
+/* ── Utilitários ────────────────────────────────────────────────────────── */
+.filter-bar { background-color: #e9ecef; border-radius: 10px; padding: 15px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ACESSIBILIDADE — Para usuários com pouca familiaridade com tecnologia
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* Tamanho de fonte base maior e espaçamento generoso */
+body { font-size: 1.05rem; line-height: 1.6; }
+
+/* Botões maiores e mais fáceis de clicar (mínimo 44px — padrão WCAG) */
+.btn { min-height: 44px; }
+.btn-lg { min-height: 56px; font-size: 1.1rem; }
+
+/* Foco visível — essencial para navegação por teclado */
+:focus-visible {
+    outline: 3px solid #0d6efd !important;
+    outline-offset: 2px !important;
+}
+
+/* Dica de ajuda azul inline (abaixo de campos de formulário) */
+.dica-ajuda {
+    background: #e8f4fd;
+    border-left: 4px solid #0d6efd;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.88rem;
+    color: #0a4a7a;
+    margin-top: 6px;
+}
+.dica-ajuda::before { content: "💡 "; }
+
+/* Caixa de ajuda contextual amarela */
+.ajuda-contextual {
+    background: #fff8e1;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.9rem;
+    color: #5a4000;
+}
+
+/* Progresso de pedido por etapas */
+.progresso-pedido { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.progresso-etapa { padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; background: #e9ecef; color: #666; }
+.progresso-etapa.ativa { background: #0d6efd; color: white; }
+.progresso-etapa.concluida { background: #198754; color: white; }
+
+/* Cores de prazo */
+.prazo-ok { color: #198754; }
+.prazo-atencao { color: #fd7e14; font-weight: bold; }
+.prazo-urgente { color: #dc3545; font-weight: bold; animation: piscar 1.5s infinite; }
+@keyframes piscar { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* Estado vazio amigável */
+.estado-vazio { text-align: center; padding: 40px 20px; color: #6c757d; }
+.estado-vazio .icone { font-size: 3rem; display: block; margin-bottom: 12px; }
+.estado-vazio h5 { font-size: 1.2rem; font-weight: 600; margin-bottom: 8px; color: #495057; }
+
+/* Campo obrigatório com asterisco vermelho */
+.label-obrigatorio::after { content: " *"; color: #dc3545; font-weight: bold; }
+
+/* Badge de caixa no pedido */
+.badge-caixa {
+    background: #0d6efd;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Tabela com linhas mais espaçadas */
+.tabela-legivel td, .tabela-legivel th { padding: 12px 10px !important; font-size: 0.95rem; }
+
+/* Card de ação principal destacado */
+.card-acao-principal { border: 2px solid #0d6efd !important; background: linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%); }

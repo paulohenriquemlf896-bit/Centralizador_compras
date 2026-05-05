@@ -2,76 +2,226 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Gestão de Usuários</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão de Acessos</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .token-box {
+            background: #212529; color: #00ff41; font-family: 'Courier New', monospace;
+            font-size: 2rem; letter-spacing: 5px; padding: 15px; border-radius: 8px;
+            text-align: center; cursor: pointer; border: 2px dashed #444; transition: all 0.3s;
+            user-select: none;
+        }
+        .token-box:hover { background: #000; border-color: #00ff41; transform: scale(1.02); }
+        .progress-container { height: 5px; background-color: #e9ecef; width: 100%; margin-top: 10px; border-radius: 2px; overflow: hidden; }
+        .progress-bar-token { height: 100%; background-color: #dc3545; width: 100%; transition: width 1s linear; }
+    </style>
 </head>
 <body class="bg-light">
 
     <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
         <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('dashboard_admin') }}">
-                <span class="me-2">⬅️</span> Voltar ao Painel
-            </a>
-            <span class="navbar-text text-white">Gestão de Acessos</span>
+            <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">⬅️ Voltar ao Painel</a>
+            <span class="navbar-text text-white">Central de Segurança</span>
         </div>
     </nav>
 
     <div class="container">
-        <div class="card shadow-sm">
-            <div class="card-header bg-white py-3">
-                <h5 class="mb-0">Usuários Cadastrados</h5>
+        <div class="card shadow-sm border-danger mb-4">
+            <div class="card-header bg-danger text-white fw-bold d-flex justify-content-between align-items-center">
+                <span>🔑 Token de Acesso Dinâmico</span>
+                <span class="badge bg-white text-danger" id="timerDisplay">Carregando...</span>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0 align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Nome</th>
-                                <th>E-mail</th>
-                                <th>Função / Loja</th>
-                                <th>Status</th>
-                                <th class="text-end">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for u in usuarios %}
-                            <tr class="{{ 'table-warning' if not u.verificado else '' }}">
-                                <td>
-                                    <strong>{{ u.nome }}</strong>
-                                </td>
-                                <td>{{ u.email }}</td>
-                                <td>
-                                    <span class="badge bg-secondary">{{ u.funcao }}</span>
-                                    {% if u.loja %}
-                                        <small class="text-muted d-block">{{ u.loja.nome }}</small>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if u.verificado %}
-                                        <span class="badge bg-success">Verificado</span>
-                                    {% else %}
-                                        <span class="badge bg-danger">Pendente</span>
-                                    {% endif %}
-                                </td>
-                                <td class="text-end">
-                                    {% if not u.verificado %}
-                                        <a href="{{ url_for('aprovar_usuario', user_id=u.id) }}" class="btn btn-success btn-sm">
-                                            ✅ Aprovar
-                                        </a>
-                                    {% endif %}
-                                    
-                                    <a href="{{ url_for('excluir_usuario', user_id=u.id) }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Tem certeza que deseja excluir este usuário?')">
-                                        🗑️
-                                    </a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+            <div class="card-body text-center">
+                <p class="text-muted mb-2">Passe este código para o novo usuário. Ele expira em 2 minutos.</p>
+                <div class="token-box" id="tokenDisplay" onclick="copiarToken()">••••••</div>
+                <div class="progress-container">
+                    <div class="progress-bar-token" id="progressBar"></div>
+                </div>
+                <small class="text-muted d-block mt-2">🖱️ Clique no código para copiar</small>
+                <button onclick="atualizarTokenAgora()" class="btn btn-sm btn-outline-secondary mt-3">
+                    🔄 Forçar Atualização Agora
+                </button>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12 mb-4">
+                <div class="card shadow border-warning">
+                    <div class="card-header bg-warning text-dark fw-bold">
+                        ⏳ Solicitações Pendentes ({{ pendentes|length }})
+                    </div>
+                    {% if not pendentes %}
+                        <div class="card-body text-center py-4 text-muted">
+                            <h5>Nenhuma solicitação pendente.</h5>
+                            <p>Todos os usuários estão verificados.</p>
+                        </div>
+                    {% else %}
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Nome</th><th>E-mail</th><th>Cargo Solicitado</th><th class="text-end">Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for u in pendentes %}
+                                    <tr>
+                                        <td><strong>{{ u.nome }}</strong></td>
+                                        <td>{{ u.email }}</td>
+                                        <td>
+                                            {% if u.funcao == 'Admin' %}
+                                                <span class="badge bg-danger">ADMINISTRADOR</span>
+                                            {% else %}
+                                                <span class="badge bg-primary">Gerente de Loja</span>
+                                                <div class="small text-muted">{{ u.loja.nome }}</div>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end">
+                                            <a href="{{ url_for('aprovar_usuario', user_id=u.id) }}" class="btn btn-success btn-sm fw-bold">✅ Aprovar Acesso</a>
+                                            <a href="#" class="btn btn-outline-danger btn-sm ms-2" onclick="confirmarAcao('Rejeitar este cadastro?', () => window.location.href = '{{ url_for('excluir_usuario', user_id=u.id) }}'); return false;">❌ Rejeitar</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="col-md-12">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-success text-white">👥 Usuários Ativos</div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-striped mb-0">
+                                <thead>
+                                    <tr><th>Nome</th><th>Função</th><th>Unidade</th><th class="text-end">Opções</th></tr>
+                                </thead>
+                                <tbody>
+                                    {% for u in ativos %}
+                                    <tr>
+                                        <td>{{ u.nome }}<br><small class="text-muted">{{ u.email }}</small></td>
+                                        <td>{{ u.funcao }}</td>
+                                        <td>{{ u.loja.nome if u.loja else '-' }}</td>
+                                        <td class="text-end">
+                                            <a href="#" class="btn btn-sm btn-outline-secondary" onclick="confirmarAcao('Remover este usuário?', () => window.location.href = '{{ url_for('excluir_usuario', user_id=u.id) }}'); return false;">🗑️ Remover</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="toastCopiado" class="toast align-items-center text-white bg-dark border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body fw-bold">
+                    ✅ Token copiado com sucesso!
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalConfirmar" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold" id="modalConfirmarTitulo">⚠️ Confirmar ação</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body py-3">
+                    <p id="modalConfirmarMensagem" class="mb-0 fs-6"></p>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-danger" id="modalConfirmarBtn">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let segundosTotais = 120;
+        let tempoRestante  = segundosTotais;
+        let timerInterval;
+        let tokenCarregado = false;
+
+        function iniciarTimer() {
+            clearInterval(timerInterval);
+            tempoRestante = segundosTotais;
+            atualizarVisual();
+            timerInterval = setInterval(() => {
+                tempoRestante--;
+                atualizarVisual();
+                if (tempoRestante <= 0) atualizarTokenAgora();
+            }, 1000);
+        }
+
+        function atualizarVisual() {
+            const m = Math.floor(tempoRestante / 60);
+            const s = tempoRestante % 60;
+            document.getElementById('timerDisplay').innerText = `Atualiza em ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            document.getElementById('progressBar').style.width = (tempoRestante / segundosTotais * 100) + '%';
+        }
+
+        function atualizarTokenAgora() {
+            fetch('/admin/api/rotacionar_token')
+                .then(r => r.status === 401 ? (window.location.href = '/login') : r.json())
+                .then(data => {
+                    if (!data) return;
+                    document.getElementById('tokenDisplay').innerText = data.token;
+                    tokenCarregado = true;
+                    iniciarTimer();
+                });
+        }
+
+        // Função para disparar o Pop-up moderno
+        function dispararToast() {
+            const toastEl = document.getElementById('toastCopiado');
+            const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+            toast.show();
+        }
+
+        function copiarToken() {
+            if (!tokenCarregado) return;
+            const texto = document.getElementById('tokenDisplay').innerText;
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(texto).then(dispararToast).catch(() => fallbackCopiarTexto(texto));
+            } else {
+                fallbackCopiarTexto(texto);
+            }
+        }
+
+        function fallbackCopiarTexto(texto) {
+            const textArea = document.createElement("textarea");
+            textArea.value = texto;
+            textArea.style.position = "fixed"; textArea.style.left = "-9999px";
+            document.body.appendChild(textArea);
+            textArea.focus(); textArea.select();
+            try { if (document.execCommand('copy')) dispararToast(); } catch (err) {}
+            document.body.removeChild(textArea);
+        }
+
+        function confirmarAcao(mensagem, aoConfirmar) {
+            document.getElementById('modalConfirmarMensagem').textContent = mensagem;
+            const modal = new bootstrap.Modal(document.getElementById('modalConfirmar'));
+            const btn = document.getElementById('modalConfirmarBtn');
+            btn.onclick = () => { modal.hide(); aoConfirmar(); };
+            modal.show();
+        }
+
+        window.onload = atualizarTokenAgora;
+    </script>
 </body>
 </html>

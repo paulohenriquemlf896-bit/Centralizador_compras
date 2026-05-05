@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciar Fornecedores / Laboratórios</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="bg-light">
+
+    <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">
+                <span class="me-2">⬅️</span> Voltar ao Painel
+            </a>
+            <span class="navbar-text text-white">Agenda de Fornecedores & Laboratórios</span>
+        </div>
+    </nav>
+
+    <div class="container">
+        
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card shadow-sm mb-4 border-primary">
+                    <div class="card-header bg-primary text-white fw-bold">
+                        ➕ Novo Fornecedor
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('admin_fornecedores') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <div class="mb-3">
+                                <label class="form-label">Nome do Laboratório / Fabricante</label>
+                                <input type="text" class="form-control" name="nome" required placeholder="Ex: EMS, Medley...">
+                            </div>
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary">Adicionar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-info text-dark fw-bold">
+                        📋 Lista de Fornecedores & E-mails
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th>Fabricante / Laboratório</th>
+                                        <th>E-mail de Contato</th>
+                                        <th class="text-end">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for f in fornecedores %}
+                                    <tr>
+                                        <form method="POST" action="{{ url_for('salvar_email_fornecedor') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="fornecedor_id" value="{{ f.id }}">
+                                            
+                                            <td class="fw-bold text-secondary">
+                                                {{ f.nome }}
+                                            </td>
+                                            <td>
+                                                <input type="email" class="form-control form-control-sm" name="email" 
+                                                       value="{{ f.email or '' }}" 
+                                                       placeholder="ex: pedidos@{{ f.nome|lower|replace(' ', '') }}.com.br">
+                                            </td>
+                                            <td class="text-end text-nowrap">
+                                                <button type="submit" class="btn btn-success btn-sm me-1" title="Salvar E-mail">
+                                                    💾 Salvar E-mail
+                                                </button>
+                                                <a href="{{ url_for('excluir_fornecedor', id=f.id) }}"
+                                   data-href="{{ url_for('excluir_fornecedor', id=f.id) }}"
+                                                   class="btn btn-outline-danger btn-sm"
+                                                   onclick="confirmarAcao('Tem certeza que quer apagar este fornecedor?', () => window.location.href = this.dataset.href, { titulo: '🗑️ Apagar Fornecedor' }); return false;" >
+                                                    🗑️ Apagar
+                                                </a>
+                                            </td>
+                                        </form>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+<!-- Modal de confirmação global (substitui confirm() do navegador) -->
+<div class="modal fade" id="modalConfirmar" tabindex="-1" aria-labelledby="modalConfirmarTitulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="modalConfirmarTitulo">⚠️ Confirmar ação</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body py-3">
+                <p id="modalConfirmarMensagem" class="mb-0 fs-6"></p>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-secondary btn-lg px-4" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-danger btn-lg px-4" id="modalConfirmarBtn">
+                    Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Substitui confirm() nativo por modal Bootstrap
+function confirmarAcao(mensagem, aoConfirmar, opcoes) {
+    const opts = opcoes || {};
+    document.getElementById('modalConfirmarMensagem').textContent = mensagem;
+
+    const titulo = document.getElementById('modalConfirmarTitulo');
+    titulo.textContent = opts.titulo || '⚠️ Confirmar ação';
+
+    const btnConfirmar = document.getElementById('modalConfirmarBtn');
+    btnConfirmar.textContent = opts.textoBotao || 'Confirmar';
+    btnConfirmar.className = 'btn btn-lg px-4 ' + (opts.classeBotao || 'btn-danger');
+
+    // Remove listener anterior para evitar duplicação
+    const btnNovo = btnConfirmar.cloneNode(true);
+    btnConfirmar.parentNode.replaceChild(btnNovo, btnConfirmar);
+
+    btnNovo.addEventListener('click', function() {
+        bootstrap.Modal.getInstance(document.getElementById('modalConfirmar')).hide();
+        aoConfirmar();
+    });
+
+    new bootstrap.Modal(document.getElementById('modalConfirmar')).show();
+}
+</script>
+
+</body>
+</html>

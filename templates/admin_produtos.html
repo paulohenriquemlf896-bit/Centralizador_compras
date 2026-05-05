@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciar Produtos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="bg-light">
+
+    <!-- Modal Editar -->
+    <div class="modal fade" id="modalEditar" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title fw-bold">✏️ Editar Produto</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form action="{{ url_for('editar_produto') }}" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="modal-body">
+                        <input type="hidden" name="prod_id" id="edit_id" aria-hidden="true">
+                        <div class="mb-3">
+                            <label class="form-label" for="edit_nome">Nome</label>
+                            <input type="text" class="form-control" name="nome" id="edit_nome" required>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Laboratório</label>
+                                <select class="form-select" name="laboratorio" id="edit_lab" required>
+                                    <option value="" disabled>Selecione...</option>
+                                    {% for lab in laboratorios_cadastrados %}
+                                        <option value="{{ lab.nome }}">{{ lab.nome }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Grupo</label>
+                                <select class="form-select" name="grupo" id="edit_grupo" required>
+                                    <option value="" disabled>Selecione...</option>
+                                    {% for grp in grupos_cadastrados %}
+                                        <option value="{{ grp.codigo }}">{{ grp.nome }} ({{ grp.codigo }})</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label" for="edit_caixa">Cx Emb.</label>
+                                <input type="number" class="form-control" name="unidade_caixa" id="edit_caixa" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label" for="edit_preco">Preço</label>
+                                <input type="number" class="form-control" name="preco" id="edit_preco" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Importar -->
+    <div class="modal fade" id="modalImportar" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">📂 Importar Lista de Produtos</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <form action="{{ url_for('importar_produtos_excel') }}" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="modal-body">
+                        <div class="mb-3 p-3 bg-light border rounded">
+                            <label class="form-label fw-bold">Grupo de Destino:</label>
+                            <select class="form-select" name="grupo_padrao" required>
+                                <option value="" selected disabled>Selecione o grupo...</option>
+                                {% for grp in grupos_cadastrados %}
+                                    <option value="{{ grp.codigo }}">{{ grp.nome }} ({{ grp.codigo }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Arquivo Excel (.xlsx)</label>
+                            <input type="file" class="form-control" name="arquivo_excel" required accept=".xlsx">
+                        </div>
+                        <div class="alert alert-warning py-2 small">
+                            <strong>Como o sistema vai ler:</strong><br>
+                            1. <strong>Laboratório:</strong> Nome da Aba.<br>
+                            2. <strong>Produto:</strong> Coluna A (a partir da linha 5).<br>
+                            <em>Preço e Caixa entrarão com valor padrão (0 e 1).</em>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-success">Processar Importação</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">⬅️ Voltar ao Painel</a>
+            <span class="navbar-text text-white">Cadastro de Produtos</span>
+        </div>
+    </nav>
+
+    <div class="container pb-5">
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between align-items-center">
+                <span>➕ Novo Produto (Manual)</span>
+                <button class="btn btn-light btn-sm text-primary fw-bold" data-bs-toggle="modal" data-bs-target="#modalImportar">
+                    📂 Importar via Excel
+                </button>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin_produtos') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Nome do Produto</label>
+                            <input type="text" class="form-control" name="nome" required placeholder="Ex: Dipirona 500mg">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Laboratório</label>
+                            <select class="form-select" name="laboratorio" required>
+                                <option value="" selected disabled>Selecione...</option>
+                                {% for lab in laboratorios_cadastrados %}
+                                    <option value="{{ lab.nome }}">{{ lab.nome }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Grupo</label>
+                            <select class="form-select" name="grupo" required>
+                                <option value="" selected disabled>Selecione...</option>
+                                {% for grp in grupos_cadastrados %}
+                                    <option value="{{ grp.codigo }}">{{ grp.nome }} ({{ grp.codigo }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label" for="edit_caixa">Cx Emb.</label>
+                            <input type="number" class="form-control" name="unidade_caixa" value="1" min="1" required>
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label" for="edit_preco">Preço</label>
+                            <input type="number" class="form-control" name="preco" value="0.00" step="0.01">
+                        </div>
+                        <div class="col-12 text-end">
+                            <button type="submit" class="btn btn-success px-4">Cadastrar Produto</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- FIX 5: Filtros server-side via GET — o banco filtra, não o navegador -->
+        <form method="GET" action="{{ url_for('admin_produtos') }}" id="formFiltro">
+            <div class="card card-body shadow-sm mb-3 border-secondary">
+                <div class="row align-items-center g-2">
+                    <div class="col-auto fw-bold text-secondary">🔍 Filtrar:</div>
+                    <div class="col-md-4">
+                        <label for="campoBusca" class="visually-hidden">Buscar produto por nome</label>
+                        <input type="text" name="q" id="campoBusca" class="form-control"
+                               placeholder="Buscar por nome..." value="{{ filtro_nome }}">
+                    </div>
+                    <div class="col-md-3">
+                        <select name="lab" class="form-select" onchange="this.form.submit()">
+                            <option value="">Todos os Laboratórios</option>
+                            {% for lab in laboratorios_cadastrados %}
+                                <option value="{{ lab.nome }}" {{ 'selected' if filtro_lab == lab.nome }}>{{ lab.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <select name="grp" class="form-select" onchange="this.form.submit()">
+                            <option value="">Todos os Grupos</option>
+                            {% for grp in grupos_cadastrados %}
+                                <option value="{{ grp.codigo }}" {{ 'selected' if filtro_grp == grp.codigo }}>{{ grp.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-secondary btn-sm">Buscar</button>
+                        <a href="{{ url_for('admin_produtos') }}" class="btn btn-outline-secondary btn-sm ms-1">Limpar</a>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+                <span>📦 Produtos Cadastrados</span>
+                <span class="badge bg-secondary">
+                    {{ paginacao.total }} produto(s) — página {{ paginacao.page }} de {{ paginacao.pages or 1 }}
+                </span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle tabela-legivel" role="grid" aria-label="Lista de produtos cadastrados">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>Produto</th>
+                                <th>Laboratório</th>
+                                <th>Grupo</th>
+                                <th class="text-center">Cx Emb.</th>
+                                <th class="text-center">Preço</th>
+                                <th class="text-end">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in produtos %}
+                            <tr>
+                                <td><strong>{{ p.nome }}</strong></td>
+                                <td><span class="badge bg-light text-dark border">{{ p.laboratorio }}</span></td>
+                                <td><small class="text-muted fw-bold">{{ p.grupo }}</small></td>
+                                <td class="text-center">{{ p.unidade_caixa }}</td>
+                                <td class="text-center">R$ {{ "%.2f" % p.preco }}</td>
+                                <td class="text-end">
+                                    <button class="btn btn-outline-primary btn-sm me-1"
+                                            data-id="{{ p.id }}"
+                                            data-nome="{{ p.nome }}"
+                                            data-lab="{{ p.laboratorio }}"
+                                            data-grupo="{{ p.grupo }}"
+                                            data-caixa="{{ p.unidade_caixa }}"
+                                            data-preco="{{ p.preco }}"
+                                            onclick="abrirEdicao(this)" aria-label="Editar produto">✏️ Editar</button>
+                                    <a href="{{ url_for('historico_preco', prod_id=p.id) }}"
+                                       class="btn btn-outline-secondary btn-sm me-1" title="Histórico de Preços">📈</a>
+                                    <a href="{{ url_for('excluir_produto', prod_id=p.id) }}"
+                                   data-href="{{ url_for('excluir_produto', prod_id=p.id) }}"
+                                       class="btn btn-outline-danger btn-sm"
+                                       onclick="confirmarAcao('Apagar este produto? Esta ação não pode ser desfeita.', () => window.location.href = this.dataset.href, { titulo: '🗑️ Apagar Produto' }); return false;" aria-label="Apagar produto">🗑️ Apagar</a>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-5">
+                                    Nenhum produto encontrado com esses filtros.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% if paginacao.pages > 1 %}
+            <div class="card-footer bg-white d-flex justify-content-center pt-3">
+                <nav aria-label="Paginação de produtos">
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item {{ 'disabled' if not paginacao.has_prev }}">
+                            <a class="page-link" href="{{ url_for('admin_produtos', pagina=paginacao.prev_num, q=filtro_nome, lab=filtro_lab, grp=filtro_grp) }}">«</a>
+                        </li>
+                        {% for num in paginacao.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                            {% if num %}
+                                <li class="page-item {{ 'active' if num == paginacao.page }}">
+                                    <a class="page-link" href="{{ url_for('admin_produtos', pagina=num, q=filtro_nome, lab=filtro_lab, grp=filtro_grp) }}">{{ num }}</a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled"><span class="page-link">…</span></li>
+                            {% endif %}
+                        {% endfor %}
+                        <li class="page-item {{ 'disabled' if not paginacao.has_next }}">
+                            <a class="page-link" href="{{ url_for('admin_produtos', pagina=paginacao.next_num, q=filtro_nome, lab=filtro_lab, grp=filtro_grp) }}">»</a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        // Debounce: envia o form 400ms após parar de digitar
+        let _t;
+        document.getElementById('campoBusca').addEventListener('input', function() {
+            clearTimeout(_t);
+            _t = setTimeout(() => document.getElementById('formFiltro').submit(), 400);
+        });
+
+        // Usa data-attributes para não quebrar com nomes que têm aspas
+        function abrirEdicao(btn) {
+            document.getElementById('edit_id').value    = btn.dataset.id;
+            document.getElementById('edit_nome').value  = btn.dataset.nome;
+            document.getElementById('edit_lab').value   = btn.dataset.lab;
+            document.getElementById('edit_grupo').value = btn.dataset.grupo;
+            document.getElementById('edit_caixa').value = btn.dataset.caixa;
+            document.getElementById('edit_preco').value = btn.dataset.preco;
+            new bootstrap.Modal(document.getElementById('modalEditar')).show();
+        }
+    </script>
+
+<!-- Modal de confirmação global (substitui confirm() do navegador) -->
+<div class="modal fade" id="modalConfirmar" tabindex="-1" aria-labelledby="modalConfirmarTitulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="modalConfirmarTitulo">⚠️ Confirmar ação</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body py-3">
+                <p id="modalConfirmarMensagem" class="mb-0 fs-6"></p>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-secondary btn-lg px-4" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-danger btn-lg px-4" id="modalConfirmarBtn">
+                    Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Substitui confirm() nativo por modal Bootstrap
+function confirmarAcao(mensagem, aoConfirmar, opcoes) {
+    const opts = opcoes || {};
+    document.getElementById('modalConfirmarMensagem').textContent = mensagem;
+
+    const titulo = document.getElementById('modalConfirmarTitulo');
+    titulo.textContent = opts.titulo || '⚠️ Confirmar ação';
+
+    const btnConfirmar = document.getElementById('modalConfirmarBtn');
+    btnConfirmar.textContent = opts.textoBotao || 'Confirmar';
+    btnConfirmar.className = 'btn btn-lg px-4 ' + (opts.classeBotao || 'btn-danger');
+
+    // Remove listener anterior para evitar duplicação
+    const btnNovo = btnConfirmar.cloneNode(true);
+    btnConfirmar.parentNode.replaceChild(btnNovo, btnConfirmar);
+
+    btnNovo.addEventListener('click', function() {
+        bootstrap.Modal.getInstance(document.getElementById('modalConfirmar')).hide();
+        aoConfirmar();
+    });
+
+    new bootstrap.Modal(document.getElementById('modalConfirmar')).show();
+}
+</script>
+
+</body>
+</html>

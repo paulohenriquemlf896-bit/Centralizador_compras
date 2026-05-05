@@ -3,78 +3,207 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cadastro - Central de Compras</title>
+    <title>Criar Conta - Central de Compras</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        body { background-color: #f4f6f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-        .card-custom { max-width: 500px; width: 100%; padding: 30px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); background: white; }
-        .logo-img { display: block; margin: 0 auto 20px; max-width: 100px; }
+        body { background-color: #f4f6f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px 0; }
+        .card-cadastro { max-width: 620px; width: 100%; padding: 36px; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); background: white; }
+        .logo-img { display: block; margin: 0 auto 24px; max-width: 90px; }
+        .form-control { font-size: 1rem; padding: 11px 14px; }
+        .form-label { font-weight: 600; color: #333; }
+        .erro-campo { color: #dc3545; font-size: 0.85rem; margin-top: 4px; display: none; }
+        .btn-perfil { width: 100%; padding: 14px; border: 2px solid #dee2e6; border-radius: 10px; background: white; color: #555; font-weight: 600; font-size: 1rem; transition: all 0.2s; }
+        .btn-perfil:hover { border-color: #0d6efd; background: #f0f7ff; }
+        .btn-perfil.ativo { border-color: #0d6efd; background: #0d6efd; color: white; }
+        .secao-titulo { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin: 20px 0 12px; }
     </style>
 </head>
 <body>
+    <div class="card-cadastro">
+        <img src="{{ url_for('static', filename='img/logo.jpg') }}" alt="Logo Central de Compras" class="logo-img">
 
-    <div class="card-custom">
-        <img src="{{ url_for('static', filename='img/logo.jpg') }}" alt="Logo" class="logo-img">
-        
-        <h4 class="text-center mb-4">Criar Nova Conta</h4>
-        
+        <h1 class="h4 text-center mb-1">Criar Nova Conta</h1>
+        <p class="text-center text-muted mb-4">Preencha os campos abaixo para se cadastrar no sistema.</p>
+
         {% if erro %}
-            <div class="alert alert-danger">{{ erro }}</div>
+        <div class="alert alert-danger" role="alert">
+            <strong>⚠️ Erro no cadastro:</strong> {{ erro }}
+        </div>
         {% endif %}
 
-        <form method="POST" action="{{ url_for('register') }}">
-            
-            <div class="mb-3">
-                <label class="form-label">Nome Completo</label>
-                <input type="text" class="form-control" name="nome" required placeholder="Ex: João Silva">
-            </div>
+        <form method="POST" action="{{ url_for('register') }}" onsubmit="return validarFormulario()" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <!-- SEÇÃO 1: Dados pessoais -->
+            <div class="secao-titulo">① Seus Dados</div>
 
             <div class="mb-3">
-                <label class="form-label">E-mail</label>
-                <input type="email" class="form-control" name="email" required placeholder="Ex: joao@loja.com">
+                <label for="nome" class="form-label label-obrigatorio">👤 Nome Completo</label>
+                <input type="text" class="form-control" id="nome" name="nome"
+                       required placeholder="Ex: Maria da Silva"
+                       autocomplete="name"
+                       aria-describedby="dica-nome">
+                <div id="dica-nome" class="dica-ajuda">Escreva seu nome como aparece no crachá ou documento.</div>
             </div>
 
             <div class="row mb-3">
-                <div class="col-md-6">
-                    <label class="form-label">Senha</label>
-                    <input type="password" class="form-control" name="senha" required>
+                <div class="col-md-6 mb-3 mb-md-0">
+                    <label for="email" class="form-label label-obrigatorio">📧 E-mail</label>
+                    <input type="email" class="form-control" id="email" name="email"
+                           required placeholder="seu@email.com"
+                           autocomplete="email">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">Função</label>
-                    <select class="form-select" name="funcao" id="selectFuncao" onchange="toggleLoja()" required>
-                        <option value="Loja" selected>Gerente de Loja</option>
-                        <option value="Admin">Comprador (Admin)</option>
+                    <label for="conf_email" class="form-label label-obrigatorio">📧 Confirme o E-mail</label>
+                    <input type="email" class="form-control" id="conf_email" name="conf_email"
+                           required placeholder="Repita o e-mail acima"
+                           autocomplete="email">
+                    <div class="erro-campo" id="erroEmail">⚠️ Os e-mails não são iguais. Verifique.</div>
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-6 mb-3 mb-md-0">
+                    <label for="senha" class="form-label label-obrigatorio">🔒 Senha</label>
+                    <input type="password" class="form-control" id="senha" name="senha"
+                           required placeholder="Crie uma senha"
+                           autocomplete="new-password"
+                           aria-describedby="dica-senha">
+                    <div id="dica-senha" class="dica-ajuda">Use pelo menos 4 caracteres. Anote em lugar seguro.</div>
+                </div>
+                <div class="col-md-6">
+                    <label for="conf_senha" class="form-label label-obrigatorio">🔒 Confirme a Senha</label>
+                    <input type="password" class="form-control" id="conf_senha" name="conf_senha"
+                           required placeholder="Repita a senha"
+                           autocomplete="new-password">
+                    <div class="erro-campo" id="erroSenha">⚠️ As senhas não são iguais. Verifique.</div>
+                </div>
+            </div>
+
+            <!-- SEÇÃO 2: Tipo de usuário -->
+            <div class="secao-titulo">② Qual é o seu cargo?</div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-6">
+                    <button type="button" class="btn-perfil ativo" id="btnLoja"
+                            onclick="setRole('loja')"
+                            aria-pressed="true"
+                            aria-label="Selecionar: Gerente de Loja">
+                        🏪 Gerente de Loja
+                    </button>
+                </div>
+                <div class="col-6">
+                    <button type="button" class="btn-perfil" id="btnAdmin"
+                            onclick="setRole('admin')"
+                            aria-pressed="false"
+                            aria-label="Selecionar: Administrador">
+                        🛡️ Administrador
+                    </button>
+                </div>
+            </div>
+
+            <!-- Bloco: Loja -->
+            <div id="blocoLoja">
+                <div class="mb-3">
+                    <label for="selectLoja" class="form-label label-obrigatorio">🏪 Qual é a sua loja?</label>
+                    <select class="form-select" name="loja_id" id="selectLoja" style="padding: 11px 14px;">
+                        <option value="" selected disabled>— Clique aqui e escolha sua loja —</option>
+                        {% for loja in lojas %}
+                            <option value="{{ loja.id }}">{{ loja.nome }}</option>
+                        {% endfor %}
                     </select>
+                    <div class="dica-ajuda">Selecione a unidade onde você trabalha.</div>
                 </div>
             </div>
 
-            <div class="mb-4" id="divLoja">
-                <label class="form-label">Selecione a Unidade</label>
-                <select class="form-select" name="loja_id">
-                    <option value="" selected disabled>Escolha...</option>
-                    {% for loja in lojas %}
-                        <option value="{{ loja.id }}">{{ loja.nome }}</option>
-                    {% endfor %}
-                </select>
+            <!-- Bloco: Admin -->
+            <div id="blocoAdmin" style="display:none;">
+                <div class="mb-3">
+                    <label for="inputToken" class="form-label label-obrigatorio">🔑 Código de Acesso (Token)</label>
+                    <input type="text" class="form-control border-danger" id="inputToken"
+                           name="token" placeholder="Digite o código fornecido pelo administrador"
+                           aria-describedby="dica-token">
+                    <div id="dica-token" class="dica-ajuda">
+                        Este código é fornecido pelo administrador do sistema. Não tem o código? Selecione "Gerente de Loja" acima.
+                    </div>
+                </div>
+
+                <div class="p-3 bg-light border rounded mb-3">
+                    <div class="fw-bold text-muted small mb-2">📧 Configuração de E-mail para envio</div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label for="smtp_email" class="form-label small">E-mail de envio (Locaweb)</label>
+                            <input type="email" class="form-control form-control-sm" id="smtp_email" name="smtp_email" placeholder="pedidos@suaempresa.com.br">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="smtp_senha" class="form-label small">Senha do e-mail</label>
+                            <input type="password" class="form-control form-control-sm" id="smtp_senha" name="smtp_senha" placeholder="Senha do e-mail acima">
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="d-grid gap-2">
-                <button type="submit" class="btn btn-success">Cadastrar</button>
-                <a href="{{ url_for('login') }}" class="btn btn-outline-secondary">Voltar para Login</a>
+            <div class="d-grid gap-2 mt-4">
+                <button type="submit" class="btn btn-success btn-lg fw-bold">
+                    ✅ Criar Minha Conta
+                </button>
+                <a href="{{ url_for('login') }}" class="btn btn-outline-secondary">
+                    ← Já tenho conta — Entrar
+                </a>
             </div>
+
+            <p class="text-center text-muted small mt-3">
+                * Campos obrigatórios. Após criar a conta, aguarde o administrador aprovar seu acesso.
+            </p>
         </form>
     </div>
 
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script>
-        function toggleLoja() {
-            var funcao = document.getElementById("selectFuncao").value;
-            var divLoja = document.getElementById("divLoja");
-            
-            if (funcao === "Admin") {
-                divLoja.style.display = "none";
-            } else {
-                divLoja.style.display = "block";
+        function setRole(role) {
+            const isLoja = role === 'loja';
+            document.getElementById('btnLoja').classList.toggle('ativo', isLoja);
+            document.getElementById('btnAdmin').classList.toggle('ativo', !isLoja);
+            document.getElementById('btnLoja').setAttribute('aria-pressed', isLoja);
+            document.getElementById('btnAdmin').setAttribute('aria-pressed', !isLoja);
+            document.getElementById('blocoLoja').style.display  = isLoja ? 'block' : 'none';
+            document.getElementById('blocoAdmin').style.display = isLoja ? 'none' : 'block';
+            if (isLoja) document.getElementById('inputToken').value = '';
+            else document.getElementById('selectLoja').value = '';
+        }
+
+        function checarIgualdade(id1, id2, idErro) {
+            const v1 = document.getElementById(id1).value;
+            const el2 = document.getElementById(id2);
+            const erro = document.getElementById(idErro);
+            const diferente = el2.value && v1 !== el2.value;
+            el2.classList.toggle('is-invalid', diferente);
+            erro.style.display = diferente ? 'block' : 'none';
+            return !diferente;
+        }
+
+        ['input','change'].forEach(ev => {
+            document.getElementById('conf_email').addEventListener(ev, () => checarIgualdade('email','conf_email','erroEmail'));
+            document.getElementById('conf_senha').addEventListener(ev, () => checarIgualdade('senha','conf_senha','erroSenha'));
+        });
+
+        function validarFormulario() {
+            const emailOk = checarIgualdade('email','conf_email','erroEmail');
+            const senhaOk = checarIgualdade('senha','conf_senha','erroSenha');
+            const isLoja = document.getElementById('btnLoja').classList.contains('ativo');
+
+            if (isLoja && !document.getElementById('selectLoja').value) {
+                alert('⚠️ Por favor, selecione sua loja antes de continuar.');
+                document.getElementById('selectLoja').focus();
+                return false;
             }
+            if (!isLoja && !document.getElementById('inputToken').value.trim()) {
+                alert('⚠️ Para criar conta de Administrador, você precisa do código de acesso.');
+                document.getElementById('inputToken').focus();
+                return false;
+            }
+            return emailOk && senhaOk;
         }
     </script>
 </body>

@@ -5,41 +5,92 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Central de Compras</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        body { background-color: #f4f6f9; display: flex; align-items: center; justify-content: center; height: 100vh; }
-        .login-card { max-width: 400px; width: 100%; padding: 30px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); background: white; }
-        .logo-img { display: block; margin: 0 auto 20px; max-width: 120px; }
-        .btn-custom { background-color: #0d6efd; color: white; width: 100%; }
+        body { background-color: #f4f6f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login-card { max-width: 420px; width: 100%; padding: 36px; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); background: white; }
+        .logo-img { display: block; margin: 0 auto 24px; max-width: 120px; }
+        .form-control { font-size: 1rem; padding: 12px 14px; }
+        .form-label { font-weight: 600; color: #333; margin-bottom: 6px; font-size: 1rem; }
     </style>
 </head>
 <body>
-
     <div class="login-card">
-        <img src="{{ url_for('static', filename='img/logo.jpg') }}" alt="Logo Central" class="logo-img">
-        
-        <h4 class="text-center mb-4">Acesso ao Sistema</h4>
-        
+        <img src="{{ url_for('static', filename='img/logo.jpg') }}" alt="Logo Central de Compras" class="logo-img">
+
+        <h1 class="h4 text-center mb-1">Bem-vindo!</h1>
+        <p class="text-center text-muted mb-4">Entre com seu e-mail e senha para acessar o sistema.</p>
+
         {% if erro %}
-            <div class="alert alert-danger text-center">{{ erro }}</div>
+        <div class="alert alert-danger" role="alert">
+            <strong>⚠️ Não conseguimos entrar:</strong> {{ erro }}
+            <hr class="my-2">
+            <small>
+                {% if 'senha' in erro.lower() or 'incorretos' in erro.lower() %}
+                    ➡️ Verifique se digitou a senha corretamente. Letras maiúsculas e minúsculas fazem diferença.
+                {% elif 'não encontrado' in erro.lower() %}
+                    ➡️ Este e-mail não está cadastrado. Confira se digitou certo ou <a href="{{ url_for('register') }}">crie uma conta</a>.
+                {% elif 'aprovada' in erro.lower() %}
+                    ➡️ Aguarde — o administrador ainda não aprovou seu cadastro.
+                {% else %}
+                    ➡️ Tente novamente ou fale com o administrador do sistema.
+                {% endif %}
+            </small>
+        </div>
         {% endif %}
 
-        <form method="POST">
-            <div class="mb-3">
-                <label for="email" class="form-label">E-mail</label>
-                <input type="email" class="form-control" id="email" name="email" required placeholder="ex: miguel@loja.com">
+        <form method="POST" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="mb-4">
+                <label for="email" class="form-label">Seu E-mail</label>
+                <input type="email" class="form-control" id="email" name="email"
+                       required autocomplete="email"
+                       placeholder="exemplo@empresa.com.br"
+                       aria-describedby="dica-email">
+                <div id="dica-email" class="dica-ajuda">
+                    Use o mesmo e-mail que você usou para se cadastrar.
+                </div>
             </div>
-            <div class="mb-3">
-                <label for="senha" class="form-label">Senha</label>
-                <input type="password" class="form-control" id="senha" name="senha" required>
+
+            <div class="mb-4">
+                <label for="senha" class="form-label">Sua Senha</label>
+                <div class="input-group">
+                    <input type="password" class="form-control" id="senha" name="senha"
+                           required autocomplete="current-password"
+                           placeholder="Digite sua senha"
+                           aria-describedby="dica-senha">
+                    <button class="btn btn-outline-secondary" type="button"
+                            onclick="toggleSenha(this)" aria-label="Mostrar ou esconder senha">
+                        Ver
+                    </button>
+                </div>
+                <div id="dica-senha" class="dica-ajuda">
+                    Não compartilhe sua senha com ninguém.
+                </div>
             </div>
-            
-            <button type="submit" class="btn btn-custom py-2 mb-3">Entrar</button>
+
+            <div class="d-grid mb-3">
+                <button type="submit" class="btn btn-primary btn-lg fw-bold">
+                    ▶️ Entrar no Sistema
+                </button>
+            </div>
 
             <div class="text-center">
-                <a href="{{ url_for('register') }}" class="text-decoration-none">Não tem conta? Cadastre-se</a>
+                <span class="text-muted">Não tem conta ainda?</span>
+                <a href="{{ url_for('register') }}" class="ms-1 fw-bold">Cadastre-se aqui</a>
             </div>
         </form>
     </div>
 
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        function toggleSenha(btn) {
+            const campo = document.getElementById('senha');
+            const mostrar = campo.type === 'password';
+            campo.type = mostrar ? 'text' : 'password';
+            btn.textContent = mostrar ? 'Ocultar' : 'Ver';
+        }
+    </script>
 </body>
 </html>

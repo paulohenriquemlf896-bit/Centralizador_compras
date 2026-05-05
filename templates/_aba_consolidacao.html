@@ -1,0 +1,123 @@
+<div class="table-responsive shadow-sm bg-white">
+    <table class="table table-bordered table-hover tabela-custom mb-0">
+        <thead>
+            <tr>
+                <th rowspan="2">PRODUTO</th>
+                <th rowspan="2">CAIXA</th>
+                <th colspan="{{ lojas|length }}">QUANTIDADES POR LOJA</th>
+                <th rowspan="2" style="background-color:#b71c1c;">TOTAL</th>
+                <th rowspan="2" style="background-color:#444;">PREÇO<br>TABELA</th>
+                <th colspan="4" style="background-color:#555;">NEGOCIAÇÃO</th>
+            </tr>
+            <tr>
+                {% for loja in lojas %}
+                    <th>{{ 'Cruza' if loja.nome == 'Recife' else loja.nome[:7] }}</th>
+                {% endfor %}
+                <th>DESC %</th>
+                <th>PREÇO<br>LÍQUIDO</th>
+                <th>VALOR<br>FECHADO</th>
+                <th>BONIF %</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in lista_itens %}
+            <tr id="linha-{{ loop.index }}" data-prod-id="{{ item.id }}">
+                <td class="col-produto">{{ item.nome }}</td>
+                <td style="background-color:#f0f0f0; font-weight:bold;">{{ item.caixa }}</td>
+
+                {% for loja in lojas %}
+                <td>
+                    <input type="number" class="input-qtd loja-input"
+                           value="{{ item.qtds.get(loja.id, 0) }}"
+                           data-loja-id="{{ loja.id }}"
+                           oninput="recalcular('linha-{{ loop.index }}'); if(window.atualizarResumo) window.atualizarResumo(this);">
+                </td>
+                {% endfor %}
+
+                <td class="col-total"><span class="valor-qtd-total">{{ item.total }}</span></td>
+
+                <td>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text px-1 text-muted" style="font-size:0.75rem;">R$</span>
+                        <input type="number" class="input-money preco-tab"
+                               value="{{ item.preco }}" step="0.01"
+                               data-preco-original="{{ item.preco }}"
+                               data-nome-prod="{{ item.nome }}"
+                               oninput="recalcular('linha-{{ loop.index }}'); if(window.atualizarResumo) window.atualizarResumo(this);"
+                               onchange="verificarAlteracaoPreco(this)">
+                    </div>
+                    <span class="badge-preco-original" style="display:none;">
+                        orig: R$ {{ "%.2f" % item.preco }}
+                    </span>
+                </td>
+
+                <td>
+                    <input type="number" class="input-desc desconto"
+                           value="{{ item.desconto }}" placeholder="0"
+                           oninput="recalcular('linha-{{ loop.index }}'); if(window.atualizarResumo) window.atualizarResumo(this);">
+                </td>
+                
+                <td style="background-color:#fff3e0;">
+                    R$ <span class="preco-liquido">{{ "%.2f"|format(item.preco_liquido)|replace(".", ",") }}</span>
+                </td>
+
+                <td style="background-color:#f8fff9;">
+                    R$ <span class="preco-final valor-fechado">{{ "%.2f"|format(item.valor_fechado)|replace(".", ",") }}</span>
+                </td>
+                <td>
+                    <input type="number" class="input-bonif"
+                           value="{{ item.bonificacao }}" placeholder="0"
+                           oninput="recalcular('linha-{{ loop.index }}'); if(window.atualizarResumo) window.atualizarResumo(this);">
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr id="linha-resumo" style="background-color:#1a237e; color:#fff; font-weight:bold; font-size:0.85rem;">
+                <td colspan="2" class="text-center" style="letter-spacing:1px;">📊 RESUMO</td>
+
+                {% for loja in lojas %}
+                <td class="text-center resumo-loja-{{ loja.id }}" style="background-color:#283593;">
+                    {{ resumo_por_loja.get(loja.id, 0) }}
+                </td>
+                {% endfor %}
+
+                <td class="text-center resumo-total-geral" style="background-color:#b71c1c;">
+                    {{ resumo_total_geral }}
+                </td>
+
+                <td style="background-color:#333;"></td>
+                <td style="background-color:#333;"></td>
+                <td style="background-color:#333;"></td>
+
+                <td style="background-color:#1b5e20;">
+                    R$ <span class="resumo-valor-fechado">{{ "%.2f"|format(resumo_valor_fechado)|replace(".", ",") }}</span>
+                </td>
+
+                <td style="background-color:#333;"></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<div class="card mt-4 card-notas shadow">
+    <div class="titulo-notas">📝 Notas — {{ laboratorio }}</div>
+    <div class="card-body">
+        <div class="row">
+            {% for loja in lojas %}
+            <div class="col-md-4 mb-3">
+                <label class="form-label fw-bold">{{ 'Cruza' if loja.nome == 'Recife' else loja.nome }}</label>
+                <textarea class="form-control form-control-sm obs-loja" rows="2"
+                    data-lab="{{ laboratorio }}" data-loja-id="{{ loja.id }}"
+                    placeholder="Obs...">{{ obs_map.get(laboratorio ~ '|' ~ loja.id, '') }}</textarea>
+            </div>
+            {% endfor %}
+            <div class="col-md-4 mb-3">
+                <label class="form-label fw-bold text-danger">📢 Geral / Fornecedor</label>
+                <textarea class="form-control form-control-sm border-danger obs-geral" rows="2"
+                    data-lab="{{ laboratorio }}"
+                    placeholder="Avisos gerais...">{{ obs_map.get(laboratorio ~ '|GERAL', '') }}</textarea>
+            </div>
+        </div>
+    </div>
+</div>
