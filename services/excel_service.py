@@ -230,3 +230,111 @@ def _cell(ws, coord, value, fill):
     c.alignment = _CENTER
     c.border = _BORDER
     return c
+
+# ============================================================
+# INSTRUÇÃO: Cole esta função ao FINAL do excel_service.py
+# ============================================================
+
+def gerar_excel_por_loja(periodo, fornecedores, dados):
+    """
+    Gera Excel: LOJAS nas linhas × FORNECEDORES nas colunas.
+    Inclui coluna de Status e linha de totais com fórmulas.
+
+    Parâmetros:
+        periodo      — objeto Periodo
+        fornecedores — lista de strings (nomes dos labs, ordenada)
+        dados        — dict {nome_loja: {'forn': {forn: cx}, 'status': str}}
+
+    Retorna BytesIO pronto para send_file().
+    """
+    from openpyxl.utils import get_column_letter
+
+    _STATUS_FILL = {
+        'Enviado':      PatternFill(start_color="1B5E20", end_color="1B5E20", fill_type="solid"),
+        'Recebido':     PatternFill(start_color="0D47A1", end_color="0D47A1", fill_type="solid"),
+        'Em andamento': PatternFill(start_color="E65100", end_color="E65100", fill_type="solid"),
+        'Pendente':     PatternFill(start_color="B71C1C", end_color="B71C1C", fill_type="solid"),
+    }
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Por Loja"
+
+    n_forn         = len(fornecedores)
+    status_col     = 2                      # coluna B = Status
+    forn_start     = 3                      # fornecedores a partir de C
+    total_col      = forn_start + n_forn    # última coluna = TOTAL
+    data_start_row = 2
+    data_end_row   = data_start_row + len(dados) - 1
+    total_row      = data_end_row + 1
+
+    # ── Cabeçalho ──────────────────────────────────────────────────────
+    c = ws.cell(row=1, column=1, value="LOJA")
+    c.font = _WHITE; c.fill = _BROWN; c.alignment = _CENTER; c.border = _BORDER
+
+    c = ws.cell(row=1, column=status_col, value="STATUS")
+    c.font = _WHITE; c.fill = _GRAY; c.alignment = _CENTER; c.border = _BORDER
+
+    for ci, forn in enumerate(fornecedores, start=forn_start):
+        c = ws.cell(row=1, column=ci, value=forn)
+        c.font = _WHITE; c.fill = _BROWN
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = _BORDER
+
+    c = ws.cell(row=1, column=total_col, value="TOTAL")
+    c.font = _WHITE; c.fill = _RED; c.alignment = _CENTER; c.border = _BORDER
+
+    # ── Linhas de dados ─────────────────────────────────────────────────
+    for ri, (loja_nome, info) in enumerate(dados.items(), start=data_start_row):
+        # Loja
+        c = ws.cell(row=ri, column=1, value=loja_nome)
+        c.font = _BOLD; c.alignment = _CENTER; c.border = _BORDER
+
+        # Status
+        status = info.get('status', 'Pendente')
+        c = ws.cell(row=ri, column=status_col, value=status)
+        c.fill = _STATUS_FILL.get(status, _STATUS_FILL['Pendente'])
+        c.font = _WHITE; c.alignment = _CENTER; c.border = _BORDER
+
+        # Fornecedores
+        forn_map = info.get('forn', {})
+        for ci, forn in enumerate(fornecedores, start=forn_start):
+            cx = forn_map.get(forn, 0)
+            c  = ws.cell(row=ri, column=ci, value=cx)
+            c.alignment = _CENTER; c.border = _BORDER
+            if cx == 0:
+                c.font = Font(color="CCCCCC")
+
+        # Total da linha (fórmula)
+        c1 = get_column_letter(forn_start)
+        c2 = get_column_letter(forn_start + n_forn - 1)
+        c  = ws.cell(row=ri, column=total_col,
+                     value=f"=SUM({c1}{ri}:{c2}{ri})")
+        c.font = Font(color="FFFFFF", bold=True)
+        c.fill = _RED; c.alignment = _CENTER; c.border = _BORDER
+
+    # ── Rodapé de totais ────────────────────────────────────────────────
+    c = ws.cell(row=total_row, column=1, value="TOTAL")
+    c.font = _WHITE; c.fill = _GRAY; c.alignment = _CENTER; c.border = _BORDER
+
+    c = ws.cell(row=total_row, column=status_col, value="")
+    c.fill = _GRAY; c.border = _BORDER
+
+    for ci in range(forn_start, total_col + 1):
+        col_letter = get_column_letter(ci)
+        c = ws.cell(row=total_row, column=ci,
+                    value=f"=SUM({col_letter}{data_start_row}:{col_letter}{data_end_row})")
+        c.font = _WHITE; c.alignment = _CENTER; c.border = _BORDER
+        c.fill = _RED if ci == total_col else _GRAY
+
+    # ── Dimensões ────────────────────────────────────────────────────────
+    ws.column_dimensions['A'].width = 18
+    ws.column_dimensions[get_column_letter(status_col)].width = 14
+    ws.row_dimensions[1].height = 40
+    for ci in range(forn_start, total_col + 1):
+        ws.column_dimensions[get_column_letter(ci)].width = 16
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output

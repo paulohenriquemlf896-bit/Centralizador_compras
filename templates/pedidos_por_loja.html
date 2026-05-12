@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedidos por Unidade/Loja</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* ── Cabeçalho da tabela ──────────────────────────────────────── */
+        .th-header {
+            background-color: #8B4513;
+            color: #fff;
+            text-align: center;
+            font-size: 0.78rem;
+            font-weight: bold;
+            border: 1px solid #5a2d0c;
+            vertical-align: middle;
+            padding: 8px 6px;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+        }
+        .th-header:hover { background-color: #6d3410; }
+        .th-header.ordenado { background-color: #5a2d0c; }
+        .th-total {
+            background-color: #b71c1c;
+            color: #fff;
+            text-align: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+            border: 1px solid #7f0000;
+            vertical-align: middle;
+            cursor: pointer;
+            user-select: none;
+        }
+        .th-total:hover { background-color: #7f0000; }
+        .th-status {
+            background-color: #37474f;
+            color: #fff;
+            text-align: center;
+            font-size: 0.78rem;
+            font-weight: bold;
+            border: 1px solid #263238;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+        .sort-icon { font-size: 0.65rem; margin-left: 4px; opacity: 0.7; }
+
+        /* ── Coluna de loja ───────────────────────────────────────────── */
+        .td-loja {
+            font-weight: bold;
+            font-size: 0.85rem;
+            vertical-align: middle;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            padding: 7px 12px;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .td-loja:hover { background-color: #f5f5f5 !important; }
+
+        /* ── Status badge ─────────────────────────────────────────────── */
+        .td-status {
+            text-align: center;
+            vertical-align: middle;
+            border: 1px solid #ccc;
+            padding: 5px 4px;
+            white-space: nowrap;
+        }
+        .badge-status {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        .status-enviado    { background: #1b5e20; color: #fff; }
+        .status-recebido   { background: #0d47a1; color: #fff; }
+        .status-andamento  { background: #e65100; color: #fff; }
+        .status-pendente   { background: #b71c1c; color: #fff; }
+
+        /* ── Células de valor ─────────────────────────────────────────── */
+        .td-valor {
+            text-align: center;
+            font-size: 0.85rem;
+            border: 1px solid #ddd;
+            vertical-align: middle;
+            padding: 6px 8px;
+            min-width: 70px;
+        }
+        .td-valor.tem-valor {
+            font-weight: bold;
+            color: #1a237e;
+            background-color: #e8eaf6;
+        }
+        /* Melhoria 1: zero destacado se era esperado pedido */
+        .td-valor.sem-valor {
+            color: #bdbdbd;
+            background-color: #fafafa;
+        }
+        .td-valor.sem-valor-alerta {
+            color: #c62828;
+            background-color: #ffebee;
+            font-weight: bold;
+        }
+        .td-total-linha {
+            text-align: center;
+            font-size: 0.88rem;
+            font-weight: bold;
+            background-color: #b71c1c;
+            color: #fff;
+            border: 1px solid #7f0000;
+            vertical-align: middle;
+            padding: 6px 10px;
+            white-space: nowrap;
+        }
+
+        /* ── Melhoria 6: variação vs período anterior ─────────────────── */
+        .variacao-badge {
+            display: inline-block;
+            font-size: 0.65rem;
+            font-weight: bold;
+            padding: 1px 5px;
+            border-radius: 8px;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+        .var-up   { background: #ffcdd2; color: #b71c1c; }
+        .var-down { background: #c8e6c9; color: #1b5e20; }
+        .var-eq   { background: #eceff1; color: #546e7a; }
+
+        /* ── Rodapé totais ────────────────────────────────────────────── */
+        tfoot tr td {
+            font-weight: bold;
+            font-size: 0.85rem;
+            text-align: center;
+            border: 1px solid #000;
+            padding: 8px 6px;
+        }
+        tfoot .td-foot-label { background-color: #222; color: #fff; text-align: left; padding-left: 12px; }
+        tfoot .td-foot-status { background-color: #37474f; }
+        tfoot .td-foot-forn  { background-color: #444; color: #fff; }
+        tfoot .td-foot-grand { background-color: #b71c1c; color: #fff; }
+
+        /* ── Scroll / sticky ──────────────────────────────────────────── */
+        .tabela-wrapper { overflow-x: auto; overflow-y: auto; max-height: 65vh; }
+        thead th { position: sticky; top: 0; z-index: 2; }
+
+        /* ── Alerta de pendentes (melhoria 5) ─────────────────────────── */
+        .alerta-pendente {
+            border-left: 5px solid #dc3545;
+            background: #fff5f5;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 0.88rem;
+        }
+        .alerta-andamento {
+            border-left: 5px solid #fd7e14;
+            background: #fff8f0;
+        }
+
+        /* ── Filtro de fornecedores (melhoria 4) ─────────────────────── */
+        .filtro-forn-panel {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 14px 18px;
+        }
+        .check-forn { cursor: pointer; font-size: 0.85rem; }
+        .check-forn input { margin-right: 5px; }
+
+        /* ── Estado inicial ───────────────────────────────────────────── */
+        .estado-inicial { text-align: center; padding: 70px 20px; color: #6c757d; }
+        .estado-inicial .icone { font-size: 3.5rem; display: block; margin-bottom: 16px; }
+
+        /* ── Hover linha ──────────────────────────────────────────────── */
+        tbody tr:hover .td-valor,
+        tbody tr:hover .td-loja,
+        tbody tr:hover .td-status { filter: brightness(0.94); }
+
+        /* ── Print ────────────────────────────────────────────────────── */
+        @media print {
+            .no-print { display: none !important; }
+            .tabela-wrapper { max-height: none; overflow: visible; }
+            body { font-size: 9px; }
+        }
+    </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark shadow-sm mb-4 no-print">
+    <div class="container-fluid px-4">
+        <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">⬅️ Voltar ao Painel</a>
+        <span class="navbar-text text-white fw-bold">📦 Pedidos por Unidade / Loja</span>
+    </div>
+</nav>
+
+<div class="container-fluid px-4 pb-5">
+
+    <!-- ── Filtro de período ──────────────────────────────────────────── -->
+    <div class="card shadow-sm mb-3 no-print">
+        <div class="card-header bg-primary text-white fw-bold">
+            🔍 Selecione o Período
+        </div>
+        <div class="card-body">
+            <form method="GET" id="formFiltro" class="row g-3 align-items-end">
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">📅 Período</label>
+                    <select name="periodo_id" class="form-select" onchange="this.form.submit()">
+                        <option value="">— Selecione um período —</option>
+                        {% for p in todos_periodos %}
+                            <option value="{{ p.id }}"
+                                {{ 'selected' if periodo_id == p.id }}>
+                                {{ p.nome }}{% if not p.ativo %} (encerrado){% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                {% if periodo_id %}
+                <div class="col-auto">
+                    <a href="{{ url_for('pedidos_por_loja') }}"
+                       class="btn btn-outline-secondary">✕ Limpar</a>
+                </div>
+                {% endif %}
+
+                <!-- Mantém ordenação e filtros ao trocar período -->
+                {% if ordenar_por %}
+                    <input type="hidden" name="ordenar" value="{{ ordenar_por }}">
+                    <input type="hidden" name="dir"     value="{{ ordenar_dir }}">
+                {% endif %}
+                {% for f in forn_filtrados %}
+                    <input type="hidden" name="forn" value="{{ f }}">
+                {% endfor %}
+
+            </form>
+        </div>
+    </div>
+
+    {% if periodo %}
+
+        <!-- ── Melhoria 5: alertas de período aberto ─────────────────── -->
+        {% if alertas %}
+        <div class="mb-3 no-print">
+            <div class="d-flex align-items-start gap-2 flex-wrap">
+                {% for a in alertas %}
+                <div class="alerta-pendente {{ 'alerta-andamento' if a.status == 'Em andamento' }}">
+                    {% if a.status == 'Em andamento' %}
+                        ✏️ <strong>{{ a.loja }}</strong> — em andamento
+                    {% else %}
+                        ⏳ <strong>{{ a.loja }}</strong> — ainda não enviou
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="text-muted mt-2" style="font-size:0.8rem;">
+                ⚠️ O período <strong>{{ periodo.nome }}</strong> ainda está aberto.
+                Os números abaixo podem mudar.
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ── Melhoria 4: filtro de fornecedores ────────────────────── -->
+        {% if fornecedores|length > 3 %}
+        <div class="filtro-forn-panel mb-3 no-print">
+            <form method="GET" id="formForn">
+                <input type="hidden" name="periodo_id" value="{{ periodo_id }}">
+                {% if ordenar_por %}
+                    <input type="hidden" name="ordenar" value="{{ ordenar_por }}">
+                    <input type="hidden" name="dir"     value="{{ ordenar_dir }}">
+                {% endif %}
+
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <span class="fw-bold text-secondary" style="font-size:0.85rem;">
+                        🏭 Exibir fornecedores:
+                    </span>
+                    <label class="check-forn">
+                        <input type="checkbox" id="checkTodos" onclick="toggleTodosForn(this)">
+                        <strong>Todos</strong>
+                    </label>
+                    {% for forn in fornecedores %}
+                    <label class="check-forn forn-check-label">
+                        <input type="checkbox" class="forn-cb" name="forn" value="{{ forn }}"
+                            {{ 'checked' if (not forn_filtrados or forn in forn_filtrados) }}>
+                        {{ forn[:25] }}{% if forn|length > 25 %}…{% endif %}
+                    </label>
+                    {% endfor %}
+                    <button type="submit" class="btn btn-sm btn-primary ms-2">Aplicar</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+
+        {% if tabela %}
+
+        <!-- ── Barra de ações ─────────────────────────────────────────── -->
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2 no-print">
+            <div>
+                <h5 class="fw-bold mb-0">
+                    {{ periodo.nome }}
+                    {% if periodo_ant %}
+                    <span class="text-muted fw-normal" style="font-size:0.8rem;">
+                        · comparando com {{ periodo_ant.nome }}
+                    </span>
+                    {% endif %}
+                </h5>
+                <small class="text-muted">
+                    {{ forn_exibidos|length }} fornecedor(es) exibido(s)
+                    · clique no cabeçalho de coluna para ordenar
+                </small>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{{ url_for('exportar_pedidos_por_loja', periodo_id=periodo.id) }}"
+                   class="btn btn-success shadow-sm fw-bold">
+                    📥 Baixar Excel
+                </a>
+                <button class="btn btn-outline-secondary" onclick="window.print()">
+                    🖨️ Imprimir
+                </button>
+            </div>
+        </div>
+
+        <!-- Cabeçalho de impressão -->
+        <div style="display:none" class="print-header mb-2">
+            <h5>Central de Compras — Pedidos por Loja · {{ periodo.nome }}</h5>
+        </div>
+
+        <!-- ── Tabela principal ───────────────────────────────────────── -->
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="tabela-wrapper">
+                    <table class="table table-bordered mb-0" style="font-size:0.83rem;">
+
+                        <thead>
+                            <tr>
+                                <!-- Coluna Loja ordenável -->
+                                <th class="th-header {{ 'ordenado' if ordenar_por == 'loja' }}"
+                                    style="min-width:130px; text-align:left; padding-left:12px;"
+                                    onclick="ordenarPor('loja')">
+                                    LOJA
+                                    <span class="sort-icon">
+                                        {% if ordenar_por == 'loja' %}
+                                            {{ '▼' if ordenar_dir == 'desc' else '▲' }}
+                                        {% else %}⇅{% endif %}
+                                    </span>
+                                </th>
+
+                                <!-- Status (não ordenável) -->
+                                <th class="th-status" style="min-width:110px;">STATUS</th>
+
+                                <!-- Fornecedores ordenáveis -->
+                                {% for forn in forn_exibidos %}
+                                <th class="th-header {{ 'ordenado' if ordenar_por == forn }}"
+                                    style="min-width:95px;"
+                                    onclick="ordenarPor('{{ forn|e }}')">
+                                    {{ forn }}
+                                    <span class="sort-icon">
+                                        {% if ordenar_por == forn %}
+                                            {{ '▼' if ordenar_dir == 'desc' else '▲' }}
+                                        {% else %}⇅{% endif %}
+                                    </span>
+                                </th>
+                                {% endfor %}
+
+                                <!-- Total ordenável -->
+                                <th class="th-total {{ 'ordenado' if ordenar_por == 'total' }}"
+                                    style="min-width:75px;"
+                                    onclick="ordenarPor('total')">
+                                    TOTAL
+                                    <span class="sort-icon">
+                                        {% if ordenar_por == 'total' %}
+                                            {{ '▼' if ordenar_dir == 'desc' else '▲' }}
+                                        {% else %}⇅{% endif %}
+                                    </span>
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for linha in tabela %}
+                            <tr>
+                                <!-- Nome da loja -->
+                                <td class="td-loja">
+                                    {{ 'Cruza' if linha.loja.nome == 'Recife' else linha.loja.nome }}
+                                </td>
+
+                                <!-- Melhoria 2: status do pedido -->
+                                <td class="td-status">
+                                    <span class="badge-status status-{{ linha.status_cor }}">
+                                        {{ linha.status_icon }} {{ linha.status_txt }}
+                                    </span>
+                                </td>
+
+                                <!-- Valores por fornecedor -->
+                                {% for forn in forn_exibidos %}
+                                {% set cx = linha.caixas_por_forn.get(forn, 0) %}
+                                {% set loja_sem_pedido = linha.status_txt == 'Pendente' or linha.status_txt == 'Em andamento' %}
+                                <td class="td-valor
+                                    {% if cx > 0 %}tem-valor
+                                    {% elif loja_sem_pedido %}sem-valor-alerta
+                                    {% else %}sem-valor{% endif %}"
+                                    title="{% if cx == 0 and loja_sem_pedido %}Loja ainda não enviou o pedido{% elif cx == 0 %}Nenhum item pedido deste fornecedor{% endif %}">
+                                    {% if cx > 0 %}
+                                        {{ cx }}
+                                    {% elif loja_sem_pedido %}
+                                        —
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+
+                                <!-- Total da linha + melhoria 6: variação -->
+                                <td class="td-total-linha">
+                                    {{ linha.total_caixas if linha.total_caixas > 0 else '—' }}
+                                    {% if linha.total_ant is not none %}
+                                        {% set diff = linha.total_caixas - linha.total_ant %}
+                                        {% if diff > 0 %}
+                                            <span class="variacao-badge var-up"
+                                                  title="vs {{ periodo_ant.nome }}">
+                                                ▲{{ diff }}
+                                            </span>
+                                        {% elif diff < 0 %}
+                                            <span class="variacao-badge var-down"
+                                                  title="vs {{ periodo_ant.nome }}">
+                                                ▼{{ diff|abs }}
+                                            </span>
+                                        {% else %}
+                                            <span class="variacao-badge var-eq"
+                                                  title="vs {{ periodo_ant.nome }}">
+                                                =
+                                            </span>
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+
+                        <tfoot>
+                            <tr>
+                                <td class="td-foot-label">TOTAL</td>
+                                <td class="td-foot-status" style="background:#37474f;"></td>
+                                {% for forn in forn_exibidos %}
+                                <td class="td-foot-forn">
+                                    {{ totais_forn.get(forn, 0) }}
+                                </td>
+                                {% endfor %}
+                                <td class="td-foot-grand">{{ grand_total }}</td>
+                            </tr>
+                        </tfoot>
+
+                    </table>
+                </div>
+            </div>
+
+            <!-- Resumo rápido por fornecedor ─────────────────────────── -->
+            <div class="card-footer bg-white no-print">
+                <div class="row g-2 align-items-center">
+                    {% for forn in forn_exibidos %}
+                    {% set total = totais_forn.get(forn, 0) %}
+                    <div class="col-auto">
+                        <div class="p-2 rounded border text-center" style="min-width:110px;">
+                            <div class="text-muted fw-bold" style="font-size:0.7rem;">
+                                {{ forn[:22] }}{% if forn|length > 22 %}…{% endif %}
+                            </div>
+                            <div class="mt-1">
+                                {% if total > 0 %}
+                                <span class="badge bg-primary">{{ total }} cx</span>
+                                {% else %}
+                                <span class="badge bg-light text-muted border">0</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    <div class="col-auto ms-auto">
+                        <div class="p-2 rounded border text-center"
+                             style="min-width:120px; background:#f8f9fa;">
+                            <div class="text-muted fw-bold" style="font-size:0.7rem;">
+                                TOTAL GERAL
+                            </div>
+                            <div class="mt-1">
+                                <span class="badge bg-danger" style="font-size:0.85rem;">
+                                    {{ grand_total }} cx
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% else %}
+        <!-- Sem dados -->
+        <div class="alert alert-warning text-center py-5 shadow-sm">
+            <div style="font-size:2.5rem;">📭</div>
+            <h5 class="mt-3 fw-bold">Nenhum pedido registrado</h5>
+            <p class="text-muted mb-0">
+                Nenhuma loja realizou pedidos no período
+                <strong>{{ periodo.nome }}</strong>.
+            </p>
+        </div>
+        {% endif %}
+
+    {% else %}
+    <!-- Estado inicial -->
+    <div class="estado-inicial no-print">
+        <span class="icone">📊</span>
+        <h5 class="fw-bold">Selecione um período para visualizar</h5>
+        <p class="text-muted">
+            A tabela mostrará, para cada <strong>loja</strong>, quantas
+            <strong>caixas</strong> foram pedidas de cada
+            <strong>fornecedor</strong>.
+        </p>
+    </div>
+    {% endif %}
+
+</div><!-- /container -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+<script>
+/* ── Melhoria 3: ordenação por coluna ────────────────────────────────── */
+const ORDENAR_ATUAL = "{{ ordenar_por }}";
+const DIR_ATUAL     = "{{ ordenar_dir }}";
+const PERIODO_ID    = "{{ periodo_id or '' }}";
+const FORN_FILTRADOS = {{ forn_filtrados | tojson }};
+
+function ordenarPor(coluna) {
+    // Alterna direção se já está ordenado por esta coluna
+    const novaDir = (ORDENAR_ATUAL === coluna && DIR_ATUAL === 'desc') ? 'asc' : 'desc';
+
+    const params = new URLSearchParams();
+    if (PERIODO_ID) params.set('periodo_id', PERIODO_ID);
+    params.set('ordenar', coluna);
+    params.set('dir', novaDir);
+    FORN_FILTRADOS.forEach(f => params.append('forn', f));
+
+    window.location.href = '{{ url_for("pedidos_por_loja") }}?' + params.toString();
+}
+
+/* ── Melhoria 4: toggle de todos os fornecedores ─────────────────────── */
+function toggleTodosForn(source) {
+    document.querySelectorAll('.forn-cb').forEach(cb => cb.checked = source.checked);
+}
+
+// Sincroniza o checkbox "Todos" com estado dos individuais
+(function() {
+    const cbs = document.querySelectorAll('.forn-cb');
+    const todos = document.getElementById('checkTodos');
+    if (!todos || !cbs.length) return;
+
+    function sincronizar() {
+        const qtdChecked = Array.from(cbs).filter(c => c.checked).length;
+        todos.checked       = (qtdChecked === cbs.length);
+        todos.indeterminate = (qtdChecked > 0 && qtdChecked < cbs.length);
+    }
+
+    cbs.forEach(cb => cb.addEventListener('change', sincronizar));
+    sincronizar();
+})();
+</script>
+</body>
+</html>

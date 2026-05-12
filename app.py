@@ -691,6 +691,238 @@ def comparativo_periodos():
     
     return render_template('comparativo_periodos.html', periodos=todos_periodos, lojas=lojas)
 
+# ============================================================
+# INSTRUÇÃO: Cole este bloco no app.py, logo após a rota
+# comparativo_periodos (~linha 692).
+# ============================================================
+
+
+@app.route('/admin/pedidos_por_loja')
+def pedidos_por_loja():
+    """
+    Tabela resumo: LOJAS nas linhas × FORNECEDORES nas colunas.
+    Melhorias incluídas:
+      1. Destaque de lojas sem pedido de um fornecedor
+      2. Status do pedido de cada loja (Enviado / Em Andamento / Pendente)
+      3. Ordenação por coluna via query string ?ordenar=NomeFornecedor
+      4. Filtro por fornecedores via checkboxes (?forn=X&forn=Y)
+      5. Aviso de período aberto com lojas que ainda não enviaram
+      6. Comparação com período anterior (▲▼)
+    """
+    if 'usuario_id' not in session or session.get('funcao') != 'Admin':
+        return redirect(url_for('login'))
+
+    periodo_id      = request.args.get('periodo_id', type=int)
+    ordenar_por     = request.args.get('ordenar', '')          # nome do fornecedor ou 'total'
+    ordenar_dir     = request.args.get('dir', 'desc')          # 'asc' | 'desc'
+    forn_filtrados  = request.args.getlist('forn')             # lista de fornecedores selecionados
+
+    ORDEM_LOJAS = ["Pesqueira", "Recife", "Campina Grande", "Natal", "Maceió"]
+    todas_lojas = Loja.query.all()
+    lojas = sorted(
+        todas_lojas,
+        key=lambda l: ORDEM_LOJAS.index(l.nome) if l.nome in ORDEM_LOJAS else 999
+    )
+
+    todos_periodos = Periodo.query.order_by(
+        Periodo.ano.desc(), Periodo.mes.desc(), Periodo.id.desc()
+    ).all()
+
+    periodo         = None
+    fornecedores    = []   # todos os labs do período
+    forn_exibidos   = []   # labs após filtro de checkboxes
+    tabela          = []
+    totais_forn     = {}
+    grand_total     = 0
+    alertas         = []   # melhoria 5: lojas pendentes
+    periodo_ant     = None # melhoria 6: período anterior
+    totais_ant      = {}   # {loja_id: total_ant}
+
+    if periodo_id:
+        periodo = db.session.get(Periodo, periodo_id)
+
+    if periodo:
+        # ── Fornecedores do período ──────────────────────────────────────
+        labs_q = db.session.query(Produto.laboratorio)\
+            .filter_by(grupo=periodo.grupo_filtro)\
+            .distinct().order_by(Produto.laboratorio).all()
+        fornecedores = [l[0] for l in labs_q]
+
+        # Aplica filtro de checkboxes (melhoria 4)
+        forn_exibidos = [f for f in fornecedores if f in forn_filtrados] \
+                        if forn_filtrados else fornecedores[:]
+
+        # ── Quantidades: uma query só ────────────────────────────────────
+        rows = db.session.query(
+            Pedido.loja_id,
+            Produto.laboratorio,
+            db.func.sum(ItemPedido.quantidade).label('total')
+        ).join(ItemPedido, ItemPedido.pedido_id == Pedido.id)\
+         .join(Produto,    Produto.id == ItemPedido.produto_id)\
+         .filter(
+             Pedido.periodo_id == periodo.id,
+             Produto.grupo     == periodo.grupo_filtro
+         ).group_by(Pedido.loja_id, Produto.laboratorio).all()
+
+        qtd_map = {(r.loja_id, r.laboratorio): int(r.total or 0) for r in rows}
+
+        # ── Status dos pedidos por loja (melhoria 2) ─────────────────────
+        pedidos_loja = {
+            p.loja_id: p
+            for p in Pedido.query.filter_by(periodo_id=periodo.id).all()
+        }
+
+        # ── Alertas de lojas sem envio (melhoria 5) ──────────────────────
+        if periodo.ativo:
+            for loja in lojas:
+                ped = pedidos_loja.get(loja.id)
+                if not ped or ped.status == 'Aberto':
+                    nome_exib = 'Cruza' if loja.nome == 'Recife' else loja.nome
+                    status_txt = 'Em andamento' if (ped and ped.status == 'Aberto') else 'Pendente'
+                    alertas.append({'loja': nome_exib, 'status': status_txt})
+
+        # ── Período anterior do mesmo grupo (melhoria 6) ─────────────────
+        periodo_ant = Periodo.query.filter(
+            Periodo.grupo_filtro == periodo.grupo_filtro,
+            Periodo.id < periodo.id
+        ).order_by(Periodo.id.desc()).first()
+
+        if periodo_ant:
+            rows_ant = db.session.query(
+                Pedido.loja_id,
+                db.func.sum(ItemPedido.quantidade).label('total')
+            ).join(ItemPedido, ItemPedido.pedido_id == Pedido.id)\
+             .join(Produto,    Produto.id == ItemPedido.produto_id)\
+             .filter(
+                 Pedido.periodo_id == periodo_ant.id,
+                 Produto.grupo     == periodo_ant.grupo_filtro
+             ).group_by(Pedido.loja_id).all()
+            totais_ant = {r.loja_id: int(r.total or 0) for r in rows_ant}
+
+        # ── Monta tabela ─────────────────────────────────────────────────
+        totais_forn = {forn: 0 for forn in forn_exibidos}
+
+        for loja in lojas:
+            ped          = pedidos_loja.get(loja.id)
+            total_ant_lj = totais_ant.get(loja.id, None)
+
+            # Status (melhoria 2)
+            if not ped:
+                status_cor, status_icon, status_txt = 'danger',  '⏳', 'Pendente'
+            elif ped.status == 'Enviado':
+                status_cor, status_icon, status_txt = 'success', '✅', 'Enviado'
+            elif ped.status == 'Recebido':
+                status_cor, status_icon, status_txt = 'primary', '📦', 'Recebido'
+            else:
+                status_cor, status_icon, status_txt = 'warning', '✏️', 'Em andamento'
+
+            linha = {
+                'loja':           loja,
+                'caixas_por_forn': {},
+                'total_caixas':   0,
+                'status_cor':     status_cor,
+                'status_icon':    status_icon,
+                'status_txt':     status_txt,
+                'total_ant':      total_ant_lj,   # melhoria 6
+            }
+
+            for forn in forn_exibidos:
+                cx = qtd_map.get((loja.id, forn), 0)
+                linha['caixas_por_forn'][forn] = cx
+                linha['total_caixas']         += cx
+                totais_forn[forn]             += cx
+                grand_total                   += cx
+
+            tabela.append(linha)
+
+        # ── Ordenação por coluna (melhoria 3) ────────────────────────────
+        reverso = (ordenar_dir == 'desc')
+        if ordenar_por == 'total':
+            tabela.sort(key=lambda l: l['total_caixas'], reverse=reverso)
+        elif ordenar_por == 'loja':
+            tabela.sort(key=lambda l: l['loja'].nome, reverse=reverso)
+        elif ordenar_por in forn_exibidos:
+            tabela.sort(
+                key=lambda l: l['caixas_por_forn'].get(ordenar_por, 0),
+                reverse=reverso
+            )
+
+    return render_template(
+        'pedidos_por_loja.html',
+        todos_periodos=todos_periodos,
+        periodo=periodo,
+        periodo_id=periodo_id,
+        fornecedores=fornecedores,
+        forn_exibidos=forn_exibidos,
+        forn_filtrados=forn_filtrados,
+        lojas=lojas,
+        tabela=tabela,
+        totais_forn=totais_forn,
+        grand_total=grand_total,
+        alertas=alertas,
+        periodo_ant=periodo_ant,
+        ordenar_por=ordenar_por,
+        ordenar_dir=ordenar_dir,
+    )
+
+
+@app.route('/admin/pedidos_por_loja/exportar/<int:periodo_id>')
+def exportar_pedidos_por_loja(periodo_id):
+    """Exporta a tabela de pedidos por loja como Excel."""
+    if 'usuario_id' not in session or session.get('funcao') != 'Admin':
+        return redirect(url_for('login'))
+
+    periodo = (db.session.get(Periodo, periodo_id) or abort(404))
+
+    ORDEM_LOJAS = ["Pesqueira", "Recife", "Campina Grande", "Natal", "Maceió"]
+    todas_lojas = Loja.query.all()
+    lojas = sorted(
+        todas_lojas,
+        key=lambda l: ORDEM_LOJAS.index(l.nome) if l.nome in ORDEM_LOJAS else 999
+    )
+
+    labs_q = db.session.query(Produto.laboratorio)\
+        .filter_by(grupo=periodo.grupo_filtro)\
+        .distinct().order_by(Produto.laboratorio).all()
+    fornecedores = [l[0] for l in labs_q]
+
+    rows = db.session.query(
+        Pedido.loja_id,
+        Produto.laboratorio,
+        db.func.sum(ItemPedido.quantidade).label('total')
+    ).join(ItemPedido, ItemPedido.pedido_id == Pedido.id)\
+     .join(Produto,    Produto.id == ItemPedido.produto_id)\
+     .filter(
+         Pedido.periodo_id == periodo.id,
+         Produto.grupo     == periodo.grupo_filtro
+     ).group_by(Pedido.loja_id, Produto.laboratorio).all()
+
+    qtd_map = {(r.loja_id, r.laboratorio): int(r.total or 0) for r in rows}
+
+    pedidos_loja = {
+        p.loja_id: p.status
+        for p in Pedido.query.filter_by(periodo_id=periodo.id).all()
+    }
+
+    dados = {}
+    for loja in lojas:
+        nome_exibido = "Cruza" if loja.nome == "Recife" else loja.nome
+        dados[nome_exibido] = {
+            'forn':   {forn: qtd_map.get((loja.id, forn), 0) for forn in fornecedores},
+            'status': pedidos_loja.get(loja.id, 'Pendente'),
+        }
+
+    from services.excel_service import gerar_excel_por_loja
+    output       = gerar_excel_por_loja(periodo, fornecedores, dados)
+    nome_arquivo = f"PedidosPorLoja_{periodo.nome.replace('/', '-')}.xlsx"
+
+    return send_file(
+        output,
+        download_name=nome_arquivo,
+        as_attachment=True,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
 @app.route('/admin/usuarios')
 def admin_usuarios():
     if 'usuario_id' not in session or session.get('funcao') != 'Admin': return redirect(url_for('login'))
@@ -1016,57 +1248,105 @@ def excluir_produto(prod_id):
 @app.route('/dashboard/admin')
 def dashboard_admin():
     if 'usuario_id' not in session: return redirect(url_for('login'))
-    # Busca TODOS os períodos (ativos e inativos) para montar o histórico de meses
+
+    nomes = {1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
+             7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'}
+
+    # ── Opções de meses para o filtro (1 query) ───────────────────────────
     todos_periodos = Periodo.query.order_by(Periodo.ano.desc(), Periodo.mes.desc()).all()
-    opcoes_meses = []
-    meses_vistos = set()
-    nomes = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
+    opcoes_meses, meses_vistos = [], set()
     for p in todos_periodos:
         k = f"{p.mes}-{p.ano}"
         if k not in meses_vistos:
             opcoes_meses.append({'valor': k, 'texto': f"{nomes[p.mes]}/{p.ano}"})
             meses_vistos.add(k)
+
+    # ── Períodos filtrados (1 query) ──────────────────────────────────────
     filtro = request.args.get('filtro_data')
-    # Sem filtro: mostra apenas os ativos (mês atual). Com filtro: mostra todos do mês selecionado
     if filtro:
-        m, a = filtro.split('-')
-        q = Periodo.query.filter_by(mes=int(m), ano=int(a))
+        mes_f, ano_f = filtro.split('-')
+        base_q = Periodo.query.filter_by(mes=int(mes_f), ano=int(ano_f))
     else:
-        q = Periodo.query.filter_by(ativo=True)
-    periodos_filt = q.order_by(Periodo.ano.desc(), Periodo.mes.desc(), Periodo.data_limite).all()
-    todas_lojas = Loja.query.all()
+        base_q = Periodo.query.filter_by(ativo=True)
+    periodos_filt = base_q.order_by(Periodo.ano.desc(), Periodo.mes.desc(), Periodo.data_limite).all()
+
+    if not periodos_filt:
+        return render_template('dashboard_admin.html', nome=session['nome'],
+                               dados_painel=[], opcoes_meses=opcoes_meses,
+                               filtro_atual=filtro, data_hoje=datetime.now().strftime('%d/%m/%Y'))
+
+    ids_periodos = [p.id for p in periodos_filt]
+    todas_lojas  = Loja.query.order_by(Loja.nome).all()
+
+    # ── 1 query: todos os pedidos dos períodos visíveis ───────────────────
+    todos_pedidos = Pedido.query.filter(Pedido.periodo_id.in_(ids_periodos)).all()
+    # índice: (periodo_id, loja_id) -> pedido mais recente
+    ped_idx = {}
+    for ped in todos_pedidos:
+        chave = (ped.periodo_id, ped.loja_id)
+        if chave not in ped_idx or ped.id > ped_idx[chave].id:
+            ped_idx[chave] = ped
+
+    # ── 1 query: contagem de itens por pedido (só para pedidos Aberto) ────
+    ids_abertos = [ped.id for ped in todos_pedidos if ped.status == 'Aberto']
+    contagem_itens = {}
+    if ids_abertos:
+        rows = db.session.query(ItemPedido.pedido_id, db.func.count(ItemPedido.id))            .filter(ItemPedido.pedido_id.in_(ids_abertos))            .group_by(ItemPedido.pedido_id).all()
+        contagem_itens = {r[0]: r[1] for r in rows}
+
+    # ── 1 query: total de itens pedidos por (produto_id, periodo_id) ──────
+    totais_lab = db.session.query(
+        Produto.laboratorio,
+        Produto.grupo,
+        db.func.count(Produto.id).label('qtd_produtos'),
+        db.func.coalesce(db.func.sum(ItemPedido.quantidade), 0).label('total_pedidos')
+    ).outerjoin(ItemPedido, ItemPedido.produto_id == Produto.id)     .outerjoin(Pedido, db.and_(
+         Pedido.id == ItemPedido.pedido_id,
+         Pedido.periodo_id.in_(ids_periodos)
+     ))     .group_by(Produto.laboratorio, Produto.grupo).all()
+
+    # índice: grupo -> {lab_nome -> {produtos_count, total_pedidos}}
+    labs_por_grupo = {}
+    for row in totais_lab:
+        g = row.grupo
+        if g not in labs_por_grupo:
+            labs_por_grupo[g] = {}
+        labs_por_grupo[g][row.laboratorio] = {
+            'nome': row.laboratorio,
+            'produtos_count': row.qtd_produtos,
+            'total_pedidos': int(row.total_pedidos),
+        }
+
+    # ── Monta dados_painel sem nenhuma query adicional ────────────────────
     dados_painel = []
     for p in periodos_filt:
+        # Status de cada loja
         sl = []
         for loja in todas_lojas:
-            ped = Pedido.query.filter_by(loja_id=loja.id, periodo_id=p.id).order_by(Pedido.id.desc()).first()
+            ped = ped_idx.get((p.id, loja.id))
             inf = {'nome': loja.nome, 'cor': 'danger', 'texto': '⏳', 'detalhe': 'Pendente'}
             if ped:
-                if ped.status == 'Recebido': inf.update({'cor': 'primary', 'texto': '📦', 'detalhe': 'Recebido na Loja'})
-                elif ped.status == 'Enviado': inf.update({'cor': 'success', 'texto': '✅', 'detalhe': f"Enviado {ped.data_alteracao.strftime('%d/%m')}"})
+                if ped.status == 'Recebido':
+                    inf.update({'cor': 'primary', 'texto': '📦', 'detalhe': 'Recebido na Loja'})
+                elif ped.status == 'Enviado':
+                    inf.update({'cor': 'success', 'texto': '✅',
+                                'detalhe': f"Enviado {ped.data_alteracao.strftime('%d/%m')}"})
                 elif ped.status == 'Aberto':
-                    q = ItemPedido.query.filter_by(pedido_id=ped.id).count()
-                    if q > 0: inf.update({'cor': 'warning text-dark', 'texto': '✏️', 'detalhe': 'Editando'})
+                    if contagem_itens.get(ped.id, 0) > 0:
+                        inf.update({'cor': 'warning text-dark', 'texto': '✏️', 'detalhe': 'Editando'})
             sl.append(inf)
-        fabricantes_data = []
-        try:
-            produtos_grupo = Produto.query.filter_by(grupo=p.grupo_filtro).all()
-            labs_dict = {}
-            for produto in produtos_grupo:
-                lab_nome = produto.laboratorio
-                if lab_nome not in labs_dict:
-                    labs_dict[lab_nome] = {'nome': lab_nome, 'produtos_count': 0, 'total_pedidos': 0}
-                labs_dict[lab_nome]['produtos_count'] += 1
-                total_produto = db.session.query(db.func.sum(ItemPedido.quantidade))\
-                    .join(Pedido)\
-                    .filter(ItemPedido.produto_id == produto.id, Pedido.periodo_id == p.id).scalar() or 0
-                labs_dict[lab_nome]['total_pedidos'] += total_produto
-            fabricantes_data = sorted(labs_dict.values(), key=lambda x: x['nome'])
-        except Exception as e:
-            print(f"Erro ao buscar fabricantes: {e}")
-            fabricantes_data = []
+
+        # Fabricantes do grupo
+        fabricantes_data = sorted(
+            labs_por_grupo.get(p.grupo_filtro, {}).values(),
+            key=lambda x: x['nome']
+        )
+
         dados_painel.append({'periodo': p, 'lojas': sl, 'fabricantes': fabricantes_data})
-    return render_template('dashboard_admin.html', nome=session['nome'], dados_painel=dados_painel, opcoes_meses=opcoes_meses, filtro_atual=filtro, data_hoje=datetime.now().strftime('%d/%m/%Y'))
+
+    return render_template('dashboard_admin.html', nome=session['nome'], dados_painel=dados_painel,
+                           opcoes_meses=opcoes_meses, filtro_atual=filtro,
+                           data_hoje=datetime.now().strftime('%d/%m/%Y'))
 
 @app.route('/admin/consolidacao')
 @app.route('/admin/consolidacao/<int:periodo_id>')
@@ -1295,20 +1575,13 @@ def processar_envio_massa():
     labs_selecionados = request.form.getlist('labs_selecionados')
     lojas_filtradas = [l for l in Loja.query.all() if str(l.id) in lojas_selecionadas_ids]
     
-    # --- NOVO: PREPARAR LISTA DE CÓPIAS (CC) ---
-    # 1. Admin já entra na cópia
-    lista_cc = [remetente_email] 
-    
-    # 2. Buscar Gerentes das lojas envolvidas
+    # Busca gerentes das lojas envolvidas (para e-mail de confirmação)
     ids_lojas_int = [l.id for l in lojas_filtradas]
-    gerentes = Usuario.query.filter(Usuario.loja_id.in_(ids_lojas_int)).all()
-    
-    for g in gerentes:
-        if g.email and g.email not in lista_cc:
-            lista_cc.append(g.email)
-            
-    # Cria a string bonita para aparecer no cabeçalho do e-mail: "adm@x.com, gerente@x.com"
-    string_cc_header = ", ".join(lista_cc)
+    gerentes = Usuario.query.filter(
+        Usuario.loja_id.in_(ids_lojas_int),
+        Usuario.verificado == True
+    ).all()
+    emails_gerentes = list({g.email for g in gerentes if g.email})
 
     enviados_log = []
     erros_log = []
@@ -1321,31 +1594,61 @@ def processar_envio_massa():
             continue
 
         try:
-            # FIX 11: geração de Excel delegada ao excel_service
             excel_bytes = _excel_unico(periodo, lab_nome, lojas_filtradas, db, Produto, ItemPedido, Pedido)
 
-            # FIX 11: envio de e-mail delegado ao email_service
+            # ── E-MAIL 1: Para o Fornecedor (com cópia só para o admin) ───────
             enviar_email_pedido(
                 remetente_email=remetente_email,
                 remetente_senha=remetente_senha,
                 smtp_server=smtp_server,
                 smtp_port=smtp_port,
                 destinatario=forn.email,
-                lista_cc=lista_cc,
+                lista_cc=[remetente_email],
                 assunto=f"Pedido de Compras - {lab_nome} - {periodo.nome}",
                 corpo=montar_corpo_pedido(lab_nome, periodo.nome),
                 anexo_bytes=excel_bytes,
                 nome_anexo=f"Pedido_{lab_nome.replace(' ', '_')}.xlsx",
             )
 
-            enviados_log.append(f"{lab_nome} -> {forn.email} (+ cópias)")
+            # ── E-MAIL 2: Para os Gerentes de Loja (confirmação interna) ──────
+            if emails_gerentes:
+                nomes_lojas = ", ".join(l.nome for l in lojas_filtradas)
+                corpo_gerente = (
+                    f"Olá,\n\n"
+                    f"O pedido do fornecedor {lab_nome} referente ao período "
+                    f"{periodo.nome} foi enviado com sucesso.\n\n"
+                    f"Lojas incluídas: {nomes_lojas}\n\n"
+                    f"Segue em anexo a planilha enviada ao fornecedor para sua conferência.\n\n"
+                    f"Atenciosamente,\nCentral de Compras"
+                )
+                for email_gerente in emails_gerentes:
+                    try:
+                        enviar_email_pedido(
+                            remetente_email=remetente_email,
+                            remetente_senha=remetente_senha,
+                            smtp_server=smtp_server,
+                            smtp_port=smtp_port,
+                            destinatario=email_gerente,
+                            lista_cc=[remetente_email],
+                            assunto=f"[Confirmação] Pedido enviado — {lab_nome} — {periodo.nome}",
+                            corpo=corpo_gerente,
+                            anexo_bytes=excel_bytes,
+                            nome_anexo=f"Pedido_{lab_nome.replace(' ', '_')}.xlsx",
+                        )
+                    except Exception as eg:
+                        app.logger.warning(f"Falha ao notificar gerente {email_gerente}: {eg}")
+
+            enviados_log.append(
+                f"{lab_nome} → fornecedor: {forn.email} | "
+                f"gerentes: {', '.join(emails_gerentes) if emails_gerentes else 'nenhum'}"
+            )
             registrar_log(
                 acao='EMAIL_ENVIADO',
                 entidade='Fornecedor', entidade_id=forn.id,
-                detalhe=f'Período {periodo_id} | Para: {forn.email} | Período: {periodo.nome}'
+                detalhe=f'Período {periodo_id} | Fornecedor: {forn.email} | Gerentes: {", ".join(emails_gerentes)}'
             )
             db.session.commit()
-            app.logger.info(f"E-mail enviado para {lab_nome}.")
+            app.logger.info(f"E-mails enviados para {lab_nome} (fornecedor + {len(emails_gerentes)} gerente(s)).")
 
         except Exception as e:
             erros_log.append(f"Erro {lab_nome}: {str(e)}")

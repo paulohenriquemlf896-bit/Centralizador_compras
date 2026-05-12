@@ -150,18 +150,22 @@
                 <a href="{{ url_for('admin_grupos') }}" class="btn btn-purple shadow-sm">
                     ⚙️ Grupos & Prazos
                 </a>
-
                 <a href="{{ url_for('admin_produtos') }}" class="btn btn-warning shadow-sm">
                     📦 Produtos
                 </a>
-                
                 <a href="{{ url_for('admin_fornecedores') }}" class="btn btn-info shadow-sm fw-bold text-white">
                     🏭 Fabricantes & E-mails
                 </a>
-                
                 <a href="{{ url_for('comparativo_periodos') }}" class="btn btn-outline-primary shadow-sm">
                     📊 Comparativo
                 </a>
+
+                {# ── NOVO BOTÃO ─────────────────────────────────────── #}
+                <a href="{{ url_for('pedidos_por_loja') }}" class="btn btn-outline-dark shadow-sm">
+                    📦 Por Unidade/Loja
+                </a>
+                {# ───────────────────────────────────────────────────── #}
+
                 <a href="{{ url_for('admin_auditoria') }}" class="btn btn-secondary shadow-sm">
                     📋 Auditoria
                 </a>
