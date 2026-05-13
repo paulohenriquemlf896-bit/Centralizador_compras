@@ -680,23 +680,157 @@ def historico_preco(prod_id):
     
     return render_template('historico_preco.html', produto=produto, logs=logs)
 
+# ================================================================
+# INSTRUÇÃO PRECISA:
+#
+# No app.py, SUBSTITUA APENAS este trecho (linhas 683 a 692):
+#
+#   @app.route('/admin/comparativo')
+#   def comparativo_periodos():
+#       ...
+#       return render_template('comparativo_periodos.html', periodos=todos_periodos, lojas=lojas)
+#
+# PELO CÓDIGO ABAIXO.
+# NÃO apague a rota pedidos_por_loja que está logo depois.
+# ================================================================
+
 @app.route('/admin/comparativo')
 def comparativo_periodos():
-    if 'usuario_id' not in session or session.get('funcao') != 'Admin': 
+    if 'usuario_id' not in session or session.get('funcao') != 'Admin':
         return redirect(url_for('login'))
-    
-    # Busca todos os períodos para o utilizador poder comparar
-    todos_periodos = Periodo.query.order_by(Periodo.ano.desc(), Periodo.mes.desc(), Periodo.id.desc()).all()
-    lojas = Loja.query.order_by(Loja.nome).all()
-    
-    return render_template('comparativo_periodos.html', periodos=todos_periodos, lojas=lojas)
 
-# ============================================================
-# INSTRUÇÃO: Cole este bloco no app.py, logo após a rota
-# comparativo_periodos (~linha 692).
-# ============================================================
+    todos_periodos = Periodo.query.order_by(
+        Periodo.ano.desc(), Periodo.mes.desc(), Periodo.id.desc()
+    ).all()
 
+    id_a = request.args.get('periodo_a', type=int)
+    id_b = request.args.get('periodo_b', type=int)
 
+    periodo_a   = None
+    periodo_b   = None
+    comparativo = []
+
+    # Totais e contagens pré-calculados no Python
+    # (evita comparar None com int no Jinja — causa do TypeError)
+    resumo = {
+        'total_qa': 0, 'total_qb': 0,
+        'total_va': 0.0, 'total_vb': 0.0,
+        'aumentaram': 0, 'reduziram': 0,
+        'iguais': 0, 'novos': 0,
+        'preco_dif': 0, 'zerados_b': 0,
+        'var_qtd_pct': 0.0, 'var_val_pct': 0.0,
+        'diff_val_total': 0.0,
+    }
+
+    if id_a and id_b and id_a != id_b:
+        periodo_a = db.session.get(Periodo, id_a)
+        periodo_b = db.session.get(Periodo, id_b)
+
+    if periodo_a and periodo_b:
+
+        def qtds_periodo(per):
+            rows = db.session.query(
+                Produto.id,
+                db.func.sum(ItemPedido.quantidade).label('total')
+            ).join(ItemPedido, ItemPedido.produto_id == Produto.id)\
+             .join(Pedido, Pedido.id == ItemPedido.pedido_id)\
+             .filter(Pedido.periodo_id == per.id)\
+             .group_by(Produto.id).all()
+            return {r[0]: int(r[1] or 0) for r in rows}
+
+        def negs_periodo(per):
+            return {n.produto_id: n for n in Negociacao.query.filter_by(periodo_id=per.id).all()}
+
+        qtd_a = qtds_periodo(periodo_a)
+        qtd_b = qtds_periodo(periodo_b)
+        neg_a = negs_periodo(periodo_a)
+        neg_b = negs_periodo(periodo_b)
+
+        todos_ids = set(qtd_a.keys()) | set(qtd_b.keys())
+        produtos  = {p.id: p for p in Produto.query.filter(Produto.id.in_(todos_ids)).all()}
+
+        for pid, p in sorted(produtos.items(), key=lambda x: x[1].nome):
+            qa = qtd_a.get(pid, 0)
+            qb = qtd_b.get(pid, 0)
+
+            # variacao é float ou None (novo); variacao_tipo é sempre string
+            if qa > 0:
+                variacao      = round(((qb - qa) / qa) * 100, 1)
+                variacao_tipo = 'up' if variacao > 0 else ('down' if variacao < 0 else 'zero')
+            elif qb > 0:
+                variacao      = None
+                variacao_tipo = 'novo'
+            else:
+                variacao      = 0.0
+                variacao_tipo = 'zero'
+
+            neg_a_item = neg_a.get(pid)
+            neg_b_item = neg_b.get(pid)
+            desc_a  = neg_a_item.desconto    if neg_a_item else 0.0
+            desc_b  = neg_b_item.desconto    if neg_b_item else 0.0
+            bonif_a = neg_a_item.bonificacao if neg_a_item else 0.0
+            bonif_b = neg_b_item.bonificacao if neg_b_item else 0.0
+
+            preco_a_val = p.preco
+            preco_b_val = p.preco
+            preco_mudou = round(preco_a_val, 2) != round(preco_b_val, 2)
+            preco_liq_a = preco_a_val * (1 - desc_a / 100)
+            preco_liq_b = preco_b_val * (1 - desc_b / 100)
+            valor_a     = round(preco_liq_a * qa, 2)
+            valor_b     = round(preco_liq_b * qb, 2)
+            diff_val    = round(valor_b - valor_a, 2)
+
+            comparativo.append({
+                'id':            pid,
+                'nome':          p.nome,
+                'laboratorio':   p.laboratorio,
+                'unidade_caixa': p.unidade_caixa,
+                'qtd_a':         qa,
+                'qtd_b':         qb,
+                'variacao':      variacao,       # float ou None
+                'variacao_tipo': variacao_tipo,  # 'up'|'down'|'zero'|'novo' — nunca None
+                'preco_a':       preco_a_val,
+                'preco_b':       preco_b_val,
+                'preco_mudou':   preco_mudou,
+                'desc_a':        desc_a,
+                'desc_b':        desc_b,
+                'bonif_a':       bonif_a,
+                'bonif_b':       bonif_b,
+                'preco_liq_a':   preco_liq_a,
+                'preco_liq_b':   preco_liq_b,
+                'valor_a':       valor_a,
+                'valor_b':       valor_b,
+                'diff_val':      diff_val,
+            })
+
+            # Acumula totais no Python (sem tocar no Jinja)
+            resumo['total_qa'] += qa
+            resumo['total_qb'] += qb
+            resumo['total_va'] += valor_a
+            resumo['total_vb'] += valor_b
+            if variacao_tipo == 'up':    resumo['aumentaram'] += 1
+            if variacao_tipo == 'down':  resumo['reduziram']  += 1
+            if variacao_tipo == 'zero':  resumo['iguais']     += 1
+            if variacao_tipo == 'novo':  resumo['novos']      += 1
+            if preco_mudou:              resumo['preco_dif']  += 1
+            if qb == 0:                  resumo['zerados_b']  += 1
+
+        qa_t = resumo['total_qa']
+        va_t = resumo['total_va']
+        resumo['var_qtd_pct']    = round(((resumo['total_qb'] - qa_t) / qa_t * 100) if qa_t else 0, 1)
+        resumo['var_val_pct']    = round(((resumo['total_vb'] - va_t) / va_t * 100) if va_t else 0, 1)
+        resumo['diff_val_total'] = round(resumo['total_vb'] - resumo['total_va'], 2)
+
+    return render_template(
+        'comparativo_periodos.html',
+        periodos=todos_periodos,
+        periodo_a=periodo_a,
+        periodo_b=periodo_b,
+        id_a=id_a,
+        id_b=id_b,
+        comparativo=comparativo,
+        resumo=resumo,
+    )
 @app.route('/admin/pedidos_por_loja')
 def pedidos_por_loja():
     """
@@ -1529,63 +1663,102 @@ def salvar_consolidacao():
         db.session.rollback()
         return jsonify({'erro': str(e)}), 500
 
+
 @app.route('/admin/preparar_envio/<int:periodo_id>')
 def preparar_envio(periodo_id):
-    if 'usuario_id' not in session or session.get('funcao') != 'Admin': return redirect(url_for('login'))
-    
+    if 'usuario_id' not in session or session.get('funcao') != 'Admin':
+        return redirect(url_for('login'))
+
     periodo = (db.session.get(Periodo, periodo_id) or abort(404))
-    lojas = Loja.query.order_by(Loja.nome).all()
-    laboratorios_do_grupo = db.session.query(Produto.laboratorio).filter_by(grupo=periodo.grupo_filtro).distinct().all()
+    lojas   = Loja.query.order_by(Loja.nome).all()
+
+    # Fornecedores do grupo com contagem de itens
+    laboratorios_do_grupo = db.session.query(Produto.laboratorio)\
+        .filter_by(grupo=periodo.grupo_filtro).distinct().all()
+
     fornecedores_resumo = []
     for lab in laboratorios_do_grupo:
         nome_lab = lab[0]
-        forn = Fornecedor.query.filter_by(nome=nome_lab).first()
-        email = forn.email if forn else None
-        
-        # AQUI ESTÁ A CORREÇÃO DE SQL ALCHEMY (.join no Pedido adicionado)
-        qtd = db.session.query(db.func.count(ItemPedido.id))\
-            .join(Produto)\
-            .join(Pedido)\
+        forn     = Fornecedor.query.filter_by(nome=nome_lab).first()
+        email    = forn.email if forn else None
+        qtd      = db.session.query(db.func.count(ItemPedido.id))\
+            .join(Produto).join(Pedido)\
             .filter(
-                Pedido.periodo_id == periodo.id,
+                Pedido.periodo_id  == periodo.id,
                 Produto.laboratorio == nome_lab
             ).scalar()
-            
         fornecedores_resumo.append({'nome': nome_lab, 'email': email, 'qtd_itens': qtd})
-    return render_template('admin_envio_email.html', periodo=periodo, lojas=lojas, fornecedores_resumo=fornecedores_resumo)
+
+    # ── NOVO: todos os usuários verificados para a lista de confirmação ──
+    # Inclui admins e gerentes de loja, cada um com sua loja (se houver)
+    gerentes_disponiveis = Usuario.query.filter_by(verificado=True)\
+        .order_by(Usuario.funcao, Usuario.nome).all()
+
+    return render_template(
+        'admin_envio_email.html',
+        periodo=periodo,
+        lojas=lojas,
+        fornecedores_resumo=fornecedores_resumo,
+        gerentes_disponiveis=gerentes_disponiveis,   # ← novo
+    )
+
 
 @csrf.exempt
 @app.route('/admin/processar_envio_massa', methods=['POST'])
 def processar_envio_massa():
-    if 'usuario_id' not in session or session.get('funcao') != 'Admin': 
+    if 'usuario_id' not in session or session.get('funcao') != 'Admin':
         return jsonify({'erro': 'Não autorizado'}), 401
-    
-    admin_user = db.session.get(Usuario, session['usuario_id'])
+
+    admin_user      = db.session.get(Usuario, session['usuario_id'])
     remetente_email = admin_user.smtp_email if admin_user.smtp_email else admin_user.email
     remetente_senha = revelar_senha(admin_user.smtp_senha)
-    smtp_server = admin_user.smtp_server or 'smtp.locaweb.com.br'
-    smtp_port = admin_user.smtp_port or 587
-    
-    if not remetente_senha:
-        return jsonify({'erro': f'O usuário {admin_user.nome} não tem senha de e-mail configurada.'}), 400
+    smtp_server     = admin_user.smtp_server or 'smtp.locaweb.com.br'
+    smtp_port       = admin_user.smtp_port   or 587
 
-    periodo_id = request.form.get('periodo_id')
-    periodo = (db.session.get(Periodo, periodo_id) or abort(404))
+    if not remetente_senha:
+        return jsonify({
+            'erro': f'O usuário {admin_user.nome} não tem senha de e-mail configurada.'
+        }), 400
+
+    periodo_id          = request.form.get('periodo_id')
+    periodo             = (db.session.get(Periodo, periodo_id) or abort(404))
     lojas_selecionadas_ids = request.form.getlist('lojas_ids')
-    labs_selecionados = request.form.getlist('labs_selecionados')
-    lojas_filtradas = [l for l in Loja.query.all() if str(l.id) in lojas_selecionadas_ids]
-    
-    # Busca gerentes das lojas envolvidas (para e-mail de confirmação)
-    ids_lojas_int = [l.id for l in lojas_filtradas]
-    gerentes = Usuario.query.filter(
-        Usuario.loja_id.in_(ids_lojas_int),
-        Usuario.verificado == True
-    ).all()
-    emails_gerentes = list({g.email for g in gerentes if g.email})
+    labs_selecionados   = request.form.getlist('labs_selecionados')
+    lojas_filtradas     = [l for l in Loja.query.all() if str(l.id) in lojas_selecionadas_ids]
+
+    # ── Destinatários de confirmação selecionados na tela ───────────────
+    confirmacao_ids = request.form.getlist('confirmacao_ids')   # IDs de usuários
+    emails_extras_raw = request.form.get('emails_extras', '').strip()
+
+    # Busca e-mails dos usuários marcados
+    emails_confirmacao = []
+    if confirmacao_ids:
+        usuarios_marcados = Usuario.query.filter(
+            Usuario.id.in_([int(i) for i in confirmacao_ids]),
+            Usuario.verificado == True
+        ).all()
+        emails_confirmacao = [u.email for u in usuarios_marcados if u.email]
+
+    # Adiciona e-mails extras digitados manualmente
+    if emails_extras_raw:
+        extras = [e.strip() for e in emails_extras_raw.split(',') if e.strip()]
+        emails_confirmacao += extras
+
+    # Remove duplicatas mantendo ordem
+    emails_confirmacao = list(dict.fromkeys(emails_confirmacao))
+
+    # ── Mês e ano por extenso para o assunto ────────────────────────────
+    MESES = {
+        1:'Janeiro', 2:'Fevereiro', 3:'Março',    4:'Abril',
+        5:'Maio',    6:'Junho',     7:'Julho',     8:'Agosto',
+        9:'Setembro',10:'Outubro', 11:'Novembro', 12:'Dezembro'
+    }
+    mes_extenso = MESES.get(periodo.mes, str(periodo.mes))
+    assunto_forn_base = f"Pedidos Rancho Alegre {mes_extenso}/{periodo.ano}"
 
     enviados_log = []
-    erros_log = []
-    
+    erros_log    = []
+
     for lab_nome in labs_selecionados:
         forn = Fornecedor.query.filter_by(nome=lab_nome).first()
 
@@ -1594,9 +1767,22 @@ def processar_envio_massa():
             continue
 
         try:
-            excel_bytes = _excel_unico(periodo, lab_nome, lojas_filtradas, db, Produto, ItemPedido, Pedido)
+            excel_bytes = _excel_unico(
+                periodo, lab_nome, lojas_filtradas, db, Produto, ItemPedido, Pedido
+            )
 
-            # ── E-MAIL 1: Para o Fornecedor (com cópia só para o admin) ───────
+            # ── E-MAIL 1: Fornecedor ─────────────────────────────────────
+            assunto_forn = f"{assunto_forn_base} - {lab_nome}"
+            corpo_forn   = (
+                f"Prezado(a),\n\n"
+                f"Segue em anexo os pedidos, conforme negociado.\n\n"
+                f"Solicitamos, por gentileza, a confirmação do prazo de "
+                f"faturamento e entrega.\n\n"
+                f"Atenciosamente,\n"
+                f"Setor de Compras\n"
+                f"Lojas Rancho Alegre"
+            )
+
             enviar_email_pedido(
                 remetente_email=remetente_email,
                 remetente_senha=remetente_senha,
@@ -1604,59 +1790,69 @@ def processar_envio_massa():
                 smtp_port=smtp_port,
                 destinatario=forn.email,
                 lista_cc=[remetente_email],
-                assunto=f"Pedido de Compras - {lab_nome} - {periodo.nome}",
-                corpo=montar_corpo_pedido(lab_nome, periodo.nome),
+                assunto=assunto_forn,
+                corpo=corpo_forn,
                 anexo_bytes=excel_bytes,
                 nome_anexo=f"Pedido_{lab_nome.replace(' ', '_')}.xlsx",
             )
 
-            # ── E-MAIL 2: Para os Gerentes de Loja (confirmação interna) ──────
-            if emails_gerentes:
-                nomes_lojas = ", ".join(l.nome for l in lojas_filtradas)
-                corpo_gerente = (
+            # ── E-MAIL 2: Confirmação para destinatários selecionados ────
+            if emails_confirmacao:
+                nomes_lojas  = ", ".join(l.nome for l in lojas_filtradas)
+                corpo_confirm = (
                     f"Olá,\n\n"
                     f"O pedido do fornecedor {lab_nome} referente ao período "
                     f"{periodo.nome} foi enviado com sucesso.\n\n"
                     f"Lojas incluídas: {nomes_lojas}\n\n"
                     f"Segue em anexo a planilha enviada ao fornecedor para sua conferência.\n\n"
-                    f"Atenciosamente,\nCentral de Compras"
+                    f"Atenciosamente,\n"
+                    f"Setor de Compras\n"
+                    f"Lojas Rancho Alegre"
                 )
-                for email_gerente in emails_gerentes:
+                for email_dest in emails_confirmacao:
                     try:
                         enviar_email_pedido(
                             remetente_email=remetente_email,
                             remetente_senha=remetente_senha,
                             smtp_server=smtp_server,
                             smtp_port=smtp_port,
-                            destinatario=email_gerente,
+                            destinatario=email_dest,
                             lista_cc=[remetente_email],
-                            assunto=f"[Confirmação] Pedido enviado — {lab_nome} — {periodo.nome}",
-                            corpo=corpo_gerente,
+                            assunto=f"[Confirmação] {assunto_forn}",
+                            corpo=corpo_confirm,
                             anexo_bytes=excel_bytes,
                             nome_anexo=f"Pedido_{lab_nome.replace(' ', '_')}.xlsx",
                         )
                     except Exception as eg:
-                        app.logger.warning(f"Falha ao notificar gerente {email_gerente}: {eg}")
+                        app.logger.warning(
+                            f"Falha ao notificar {email_dest} sobre {lab_nome}: {eg}"
+                        )
 
+            dest_confirmacao_str = ', '.join(emails_confirmacao) if emails_confirmacao else 'nenhum'
             enviados_log.append(
                 f"{lab_nome} → fornecedor: {forn.email} | "
-                f"gerentes: {', '.join(emails_gerentes) if emails_gerentes else 'nenhum'}"
+                f"confirmação: {dest_confirmacao_str}"
             )
+
             registrar_log(
                 acao='EMAIL_ENVIADO',
                 entidade='Fornecedor', entidade_id=forn.id,
-                detalhe=f'Período {periodo_id} | Fornecedor: {forn.email} | Gerentes: {", ".join(emails_gerentes)}'
+                detalhe=(
+                    f'Período {periodo_id} | Fornecedor: {forn.email} | '
+                    f'Confirmação: {dest_confirmacao_str}'
+                )
             )
             db.session.commit()
-            app.logger.info(f"E-mails enviados para {lab_nome} (fornecedor + {len(emails_gerentes)} gerente(s)).")
+            app.logger.info(
+                f"E-mails enviados para {lab_nome} "
+                f"(fornecedor + {len(emails_confirmacao)} confirmação)."
+            )
 
         except Exception as e:
             erros_log.append(f"Erro {lab_nome}: {str(e)}")
             app.logger.error(f"Falha ao enviar e-mail para {lab_nome}: {e}")
-            
+
     return jsonify({'enviados': enviados_log, 'erros': erros_log})
-
-
 
 @app.route('/admin/exportar_excel/<int:periodo_id>')
 def exportar_excel(periodo_id):

@@ -6,35 +6,100 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        /* Estilo para o Loader (Tela de Carregamento) */
         #loadingOverlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255, 255, 255, 0.8);
+            background: rgba(255, 255, 255, 0.9);
             z-index: 9999; display: none;
             flex-direction: column; justify-content: center; align-items: center;
+        }
+        .loading-lab {
+            font-size: 0.9rem;
+            color: #555;
+            margin-top: 8px;
+            min-height: 24px;
+        }
+
+        /* ── Card de destinatários ── */
+        .destinatario-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+            margin-bottom: 6px;
+            background: #fff;
+            transition: background 0.15s;
+        }
+        .destinatario-row:hover { background: #f0f4ff; }
+        .destinatario-row input[type=checkbox] { flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; }
+        .dest-info { flex: 1; min-width: 0; }
+        .dest-nome { font-weight: bold; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dest-email { font-size: 0.78rem; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dest-loja-badge {
+            font-size: 0.7rem;
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 2px 8px;
+            border-radius: 20px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .email-extra-input {
+            border: 1px dashed #aaa;
+            border-radius: 6px;
+            padding: 8px 12px;
+            background: #fafafa;
+        }
+
+        /* ── Preview do e-mail ── */
+        .preview-box {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 16px;
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            color: #333;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .preview-label {
+            font-size: 0.75rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #888;
+            margin-bottom: 4px;
         }
     </style>
 </head>
 <body class="bg-light">
 
+    <!-- ── Loading overlay ─────────────────────────────────────────────── -->
     <div id="loadingOverlay">
-        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
-        <h4 class="mt-3 text-secondary">Enviando e-mails, aguarde...</h4>
+        <div class="spinner-border text-primary" style="width: 3.5rem; height: 3.5rem;" role="status"></div>
+        <h4 class="mt-4 text-secondary fw-bold">Enviando e-mails...</h4>
+        <div class="loading-lab" id="loadingLab">Preparando envio...</div>
+        <div class="text-muted mt-2" style="font-size:0.8rem;">
+            Não feche esta janela. O processo pode levar alguns minutos.
+        </div>
     </div>
 
+    <!-- ── Modal de resultado ──────────────────────────────────────────── -->
     <div class="modal fade" id="modalResultado" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header bg-dark text-white">
-                    <h5 class="modal-title">Relatório de Envio</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title">📋 Relatório de Envio</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div id="conteudoSucesso" class="mb-3">
                         <h6 class="text-success fw-bold">✅ Enviados com Sucesso:</h6>
                         <ul id="listaSucesso" class="list-group mb-3"></ul>
                     </div>
-                    
                     <div id="conteudoErro">
                         <h6 class="text-danger fw-bold">❌ Falhas / Erros:</h6>
                         <ul id="listaErro" class="list-group"></ul>
@@ -47,76 +112,97 @@
         </div>
     </div>
 
+    <!-- ── Navbar ──────────────────────────────────────────────────────── -->
     <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
         <div class="container-fluid px-4">
             <a class="navbar-brand" href="{{ url_for('consolidacao_pedidos', periodo_id=periodo.id) }}">
-                <span class="me-2">⬅️</span> Voltar para Consolidação
+                ⬅️ Voltar para Consolidação
             </a>
-            <span class="navbar-text text-white">Disparo de Pedidos: {{ periodo.nome }}</span>
+            <span class="navbar-text text-white fw-bold">
+                🚀 Disparo de Pedidos — {{ periodo.nome }}
+            </span>
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container pb-5">
         <form id="formEnvioMassa">
             <input type="hidden" name="periodo_id" value="{{ periodo.id }}">
 
-            <div class="row">
+            <div class="row g-4">
+
+                <!-- ── Coluna esquerda: Lojas + Fornecedores ──────────── -->
                 <div class="col-md-5">
+
+                    <!-- 1. Lojas -->
                     <div class="card shadow-sm mb-4">
                         <div class="card-header bg-secondary text-white fw-bold">
-                            1. Quais Lojas incluir no pedido?
+                            1. Quais lojas incluir no pedido?
                         </div>
                         <div class="card-body">
                             <div class="form-check mb-2 border-bottom pb-2">
-                                <input class="form-check-input" type="checkbox" id="todas_lojas" checked onclick="toggleLojas(this)">
-                                <label class="form-check-label fw-bold" for="todas_lojas">Selecionar Todas</label>
+                                <input class="form-check-input" type="checkbox" id="todas_lojas"
+                                       checked onclick="toggleLojas(this)">
+                                <label class="form-check-label fw-bold" for="todas_lojas">
+                                    Selecionar Todas
+                                </label>
                             </div>
                             {% for loja in lojas %}
                             <div class="form-check">
-                                <input class="form-check-input loja-check" type="checkbox" name="lojas_ids" value="{{ loja.id }}" checked>
+                                <input class="form-check-input loja-check" type="checkbox"
+                                       name="lojas_ids" value="{{ loja.id }}" checked>
                                 <label class="form-check-label">{{ loja.nome }}</label>
                             </div>
                             {% endfor %}
                         </div>
                     </div>
-                </div>
 
-                <div class="col-md-7">
+                    <!-- 2. Fornecedores -->
                     <div class="card shadow-sm mb-4">
                         <div class="card-header bg-primary text-white fw-bold">
                             2. Para quais fornecedores enviar?
                         </div>
                         <div class="card-body">
-                            <div class="alert alert-info small py-2">
-                                O sistema gerará um Excel exclusivo para cada fornecedor selecionado.
+                            <div class="alert alert-info small py-2 mb-3">
+                                Um Excel exclusivo será gerado por fornecedor.
                             </div>
                             <div class="table-responsive">
-                                <table class="table table-sm table-hover">
+                                <table class="table table-sm table-hover mb-0">
                                     <thead class="table-light">
                                         <tr>
-                                            <th style="width: 30px;"><input type="checkbox" checked onclick="toggleFornecedores(this)"></th>
+                                            <th style="width:30px;">
+                                                <input type="checkbox" checked
+                                                       onclick="toggleFornecedores(this)">
+                                            </th>
                                             <th>Fornecedor</th>
-                                            <th>E-mail Destino</th>
-                                            <th>Status</th>
+                                            <th>E-mail</th>
+                                            <th>Itens</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {% for item in fornecedores_resumo %}
                                         <tr class="{{ 'table-danger' if not item.email else '' }}">
                                             <td>
-                                                <input class="form-check-input forn-check" type="checkbox" name="labs_selecionados" value="{{ item.nome }}" {{ 'checked' if item.email else 'disabled' }}>
+                                                <input class="form-check-input forn-check"
+                                                       type="checkbox"
+                                                       name="labs_selecionados"
+                                                       value="{{ item.nome }}"
+                                                       {{ 'checked' if item.email else 'disabled' }}>
                                             </td>
                                             <td><strong>{{ item.nome }}</strong></td>
-                                            <td>
+                                            <td style="font-size:0.8rem;">
                                                 {% if item.email %}
                                                     {{ item.email }}
                                                 {% else %}
-                                                    <span class="text-danger small fw-bold">Sem e-mail cadastrado</span>
-                                                    <a href="{{ url_for('admin_fornecedores') }}" class="btn btn-outline-secondary btn-sm py-0" style="font-size: 0.7rem;">Cadastrar</a>
+                                                    <span class="text-danger fw-bold">Sem e-mail</span>
+                                                    <a href="{{ url_for('admin_fornecedores') }}"
+                                                       class="btn btn-outline-secondary btn-sm py-0"
+                                                       style="font-size:0.7rem;">Cadastrar</a>
                                                 {% endif %}
                                             </td>
                                             <td>
-                                                <span class="badge bg-light text-dark border">{{ item.qtd_itens }} itens</span>
+                                                <span class="badge bg-light text-dark border">
+                                                    {{ item.qtd_itens }}
+                                                </span>
                                             </td>
                                         </tr>
                                         {% endfor %}
@@ -125,18 +211,109 @@
                             </div>
                         </div>
                     </div>
+
+                </div>
+
+                <!-- ── Coluna direita: Confirmações + Preview ─────────── -->
+                <div class="col-md-7">
+
+                    <!-- 3. Quem recebe a confirmação -->
+                    <div class="card shadow-sm mb-4 border-warning">
+                        <div class="card-header bg-warning text-dark fw-bold">
+                            3. Quem recebe a confirmação de envio?
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted small mb-3">
+                                Estas pessoas receberão um e-mail de confirmação com a
+                                planilha anexada, para cada fornecedor enviado.
+                            </p>
+
+                            <!-- Toggle geral -->
+                            <div class="form-check mb-3 border-bottom pb-2">
+                                <input class="form-check-input" type="checkbox"
+                                       id="todos_confirmacao" checked
+                                       onclick="toggleConfirmacao(this)">
+                                <label class="form-check-label fw-bold" for="todos_confirmacao">
+                                    Selecionar todos
+                                </label>
+                            </div>
+
+                            <!-- Gerentes cadastrados -->
+                            {% for g in gerentes_disponiveis %}
+                            <div class="destinatario-row">
+                                <input class="dest-check" type="checkbox"
+                                       name="confirmacao_ids" value="{{ g.id }}"
+                                       id="dest_{{ g.id }}" checked>
+                                <label for="dest_{{ g.id }}" class="dest-info" style="cursor:pointer; margin:0;">
+                                    <div class="dest-nome">{{ g.nome }}</div>
+                                    <div class="dest-email">{{ g.email }}</div>
+                                </label>
+                                {% if g.loja %}
+                                <span class="dest-loja-badge">{{ g.loja.nome }}</span>
+                                {% else %}
+                                <span class="dest-loja-badge" style="background:#fce4ec; color:#880e4f;">Admin</span>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <div class="alert alert-warning small py-2 mb-2">
+                                Nenhum gerente cadastrado e aprovado no sistema.
+                            </div>
+                            {% endfor %}
+
+                            <!-- E-mails extras (digitados manualmente) -->
+                            <div class="email-extra-input mt-3">
+                                <label class="form-label fw-bold small mb-1">
+                                    ➕ Adicionar outros e-mails (opcional)
+                                </label>
+                                <input type="text" class="form-control form-control-sm"
+                                       name="emails_extras"
+                                       placeholder="ex: diretoria@empresa.com, socio@empresa.com"
+                                       id="inputEmailsExtras">
+                                <div class="form-text">Separe múltiplos e-mails por vírgula.</div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <!-- 4. Preview do e-mail ao fornecedor -->
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-light fw-bold text-secondary">
+                            📧 Preview — E-mail que o fornecedor receberá
+                        </div>
+                        <div class="card-body">
+                            <div class="preview-label">Assunto</div>
+                            <div class="preview-box mb-3" style="max-height:48px; font-family:sans-serif; font-size:0.88rem;">Pedidos Rancho Alegre {{ periodo.nome }} - [Nome do Fornecedor]</div>
+
+                            <div class="preview-label">Corpo</div>
+                            <div class="preview-box">Prezado(a),
+
+Segue em anexo os pedidos, conforme negociado.
+
+Solicitamos, por gentileza, a confirmação do prazo de faturamento e entrega.
+
+Atenciosamente,
+Setor de Compras
+Lojas Rancho Alegre</div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
+            <!-- ── Botão de envio ──────────────────────────────────────── -->
             <div class="card shadow-sm border-success">
-                <div class="card-body text-center">
-                    <h4 class="mb-3">Pronto para enviar?</h4>
-                    <p class="text-muted">Isso enviará e-mails reais para os fornecedores selecionados.</p>
+                <div class="card-body text-center py-4">
+                    <h4 class="mb-2">Pronto para enviar?</h4>
+                    <p class="text-muted mb-4">
+                        Isso enviará e-mails reais para os fornecedores selecionados
+                        e notificará as pessoas marcadas acima.
+                    </p>
                     <button type="submit" class="btn btn-success btn-lg px-5 fw-bold shadow">
                         🚀 CONFIRMAR ENVIO EM MASSA
                     </button>
                 </div>
             </div>
+
         </form>
     </div>
 
@@ -149,13 +326,35 @@
         function toggleFornecedores(source) {
             document.querySelectorAll('.forn-check:not([disabled])').forEach(cb => cb.checked = source.checked);
         }
+        function toggleConfirmacao(source) {
+            document.querySelectorAll('.dest-check').forEach(cb => cb.checked = source.checked);
+        }
 
-        // --- LÓGICA DO ENVIO VIA AJAX ---
+        // Sincroniza "Selecionar todos" da confirmação
+        document.querySelectorAll('.dest-check').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const todos  = document.querySelectorAll('.dest-check');
+                const checks = Array.from(todos).filter(c => c.checked).length;
+                const master = document.getElementById('todos_confirmacao');
+                master.checked       = checks === todos.length;
+                master.indeterminate = checks > 0 && checks < todos.length;
+            });
+        });
+
+        // ── Envio AJAX ──────────────────────────────────────────────────
         document.getElementById('formEnvioMassa').addEventListener('submit', function(e) {
-            e.preventDefault(); // Impede o recarregamento da página
+            e.preventDefault();
 
-            // Mostra o Loading
+            // Validação mínima
+            const labs = document.querySelectorAll('.forn-check:checked');
+            if (labs.length === 0) {
+                alert('⚠️ Selecione pelo menos um fornecedor para enviar.');
+                return;
+            }
+
             document.getElementById('loadingOverlay').style.display = 'flex';
+            document.getElementById('loadingLab').textContent =
+                `Enviando para ${labs.length} fornecedor(es)...`;
 
             var formData = new FormData(this);
 
@@ -165,7 +364,6 @@
             })
             .then(response => response.json())
             .then(data => {
-                // Esconde o Loading
                 document.getElementById('loadingOverlay').style.display = 'none';
 
                 if (data.erro) {
@@ -173,7 +371,7 @@
                     return;
                 }
 
-                // Preenche o Modal de Sucesso
+                // Sucessos
                 var listaSucesso = document.getElementById('listaSucesso');
                 listaSucesso.innerHTML = "";
                 if (data.enviados && data.enviados.length > 0) {
@@ -188,7 +386,7 @@
                     document.getElementById('conteudoSucesso').style.display = 'none';
                 }
 
-                // Preenche o Modal de Erro
+                // Erros
                 var listaErro = document.getElementById('listaErro');
                 listaErro.innerHTML = "";
                 if (data.erros && data.erros.length > 0) {
@@ -203,9 +401,7 @@
                     document.getElementById('conteudoErro').style.display = 'none';
                 }
 
-                // Abre o Modal
-                var myModal = new bootstrap.Modal(document.getElementById('modalResultado'));
-                myModal.show();
+                new bootstrap.Modal(document.getElementById('modalResultado')).show();
             })
             .catch(error => {
                 document.getElementById('loadingOverlay').style.display = 'none';

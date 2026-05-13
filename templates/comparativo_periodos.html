@@ -7,196 +7,465 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        .variacao-pos  { color: #dc3545; font-weight: bold; }
-        .variacao-neg  { color: #198754; font-weight: bold; }
-        .variacao-zero { color: #6c757d; }
-        .col-lab { font-size: 0.75rem; color: #888; }
-        .sticky-header th { position: sticky; top: 0; z-index: 1; background: #343a40; color: white; }
+        .var-up   { color: #c62828; font-weight: bold; }
+        .var-down { color: #2e7d32; font-weight: bold; }
+        .var-zero { color: #78909c; }
+        .preco-alterado { color: #e65100; font-weight: bold; }
+
+        .tabela-wrapper { max-height: 62vh; overflow-y: auto; overflow-x: auto; }
+        thead th {
+            position: sticky; top: 0; z-index: 2;
+            background: #212529; color: #fff;
+            font-size: 0.78rem; vertical-align: middle;
+            text-align: center; padding: 8px 6px;
+            cursor: pointer; user-select: none; white-space: nowrap;
+        }
+        thead th:first-child { text-align: left; min-width: 200px; }
+        thead th:hover { background: #343a40; }
+        thead th.ordenado { background: #0d6efd; }
+        .sort-ic { font-size: 0.6rem; margin-left: 3px; opacity: 0.7; }
+
+        tbody td {
+            font-size: 0.82rem; vertical-align: middle;
+            padding: 6px 8px; border-bottom: 1px solid #e9ecef;
+        }
+        tbody tr:hover td { background: #f0f4ff !important; }
+
         .resumo-card { border-left: 4px solid; }
+        .resumo-num  { font-size: 1.6rem; font-weight: bold; line-height: 1.1; }
+        .resumo-lab  { font-size: 0.75rem; color: #888; }
+
+        .badge-lab {
+            font-size: 0.68rem; background: #e8eaf6;
+            color: #3949ab; padding: 2px 7px;
+            border-radius: 10px; white-space: nowrap;
+        }
+
+        .filtro-btn {
+            font-size: 0.78rem; padding: 4px 12px;
+            border-radius: 20px; border: 1px solid #dee2e6;
+            background: #fff; cursor: pointer; transition: all 0.15s;
+        }
+        .filtro-btn.ativo { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+        .filtro-btn:hover:not(.ativo) { background: #f0f4ff; }
+
+        .col-a    { background-color: #f8f9ff; }
+        .col-b    { background-color: #f0fff4; }
+        .col-diff { background-color: #fffde7; }
+
+        .estado-inicial { text-align:center; padding:70px 20px; color:#6c757d; }
+        .estado-inicial .icone { font-size:3.5rem; display:block; margin-bottom:16px; }
+
+        @media print {
+            .no-print { display: none !important; }
+            .tabela-wrapper { max-height: none; overflow: visible; }
+            body { font-size: 9px; }
+        }
     </style>
 </head>
 <body class="bg-light">
 
-    <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
-        <div class="container-fluid px-4">
-            <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">⬅️ Voltar ao Painel</a>
-            <span class="navbar-text text-white">📊 Comparativo de Períodos</span>
+<nav class="navbar navbar-dark bg-dark shadow-sm mb-4 no-print">
+    <div class="container-fluid px-4">
+        <a class="navbar-brand" href="{{ url_for('dashboard_admin') }}">⬅️ Voltar ao Painel</a>
+        <span class="navbar-text text-white fw-bold">📊 Comparativo de Períodos</span>
+    </div>
+</nav>
+
+<div class="container-fluid px-4 pb-5">
+
+    <!-- ── Seleção de períodos ────────────────────────────────────────── -->
+    <div class="card shadow-sm mb-4 no-print">
+        <div class="card-header bg-primary text-white fw-bold">
+            Selecione os dois períodos para comparar
         </div>
-    </nav>
+        <div class="card-body">
+            <form method="GET" class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">📅 Período A (base)</label>
+                    <select name="periodo_a" class="form-select" required>
+                        <option value="">Selecione...</option>
+                        {% for p in periodos %}
+                        <option value="{{ p.id }}" {{ 'selected' if id_a == p.id }}>
+                            {{ p.nome }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto d-flex align-items-end pb-1">
+                    <span class="fs-4 text-muted fw-bold">vs</span>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">📅 Período B (comparação)</label>
+                    <select name="periodo_b" class="form-select" required>
+                        <option value="">Selecione...</option>
+                        {% for p in periodos %}
+                        <option value="{{ p.id }}" {{ 'selected' if id_b == p.id }}>
+                            {{ p.nome }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto d-flex gap-2">
+                    <button type="submit" class="btn btn-primary px-4 fw-bold">📊 Comparar</button>
+                    {% if comparativo %}
+                    <button type="button" class="btn btn-outline-secondary"
+                            onclick="window.print()">🖨️ Imprimir</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
 
-    <div class="container-fluid px-4 pb-5">
+    {% if comparativo %}
 
-        <!-- Seleção de períodos -->
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-primary text-white fw-bold">
-                Selecione os dois períodos para comparar
-            </div>
-            <div class="card-body">
-                <form method="GET" class="row g-3 align-items-end">
-                    <div class="col-md-4">
-                        <label class="form-label fw-bold">📅 Período A (base)</label>
-                        <select name="periodo_a" class="form-select" required>
-                            <option value="">Selecione...</option>
-                            {% for p in periodos %}
-                                <option value="{{ p.id }}" {{ 'selected' if id_a == p.id }}>
-                                    {{ p.nome }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-auto d-flex align-items-end pb-1">
-                        <span class="fs-4 text-muted">vs</span>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label fw-bold">📅 Período B (comparação)</label>
-                        <select name="periodo_b" class="form-select" required>
-                            <option value="">Selecione...</option>
-                            {% for p in periodos %}
-                                <option value="{{ p.id }}" {{ 'selected' if id_b == p.id }}>
-                                    {{ p.nome }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-auto">
-                        <button type="submit" class="btn btn-primary px-4">Comparar</button>
-                    </div>
-                </form>
+    <!-- ── Resumo executivo (dados vêm do Python, sem cálculos no Jinja) ── -->
+    <div class="row g-3 mb-4">
+
+        <div class="col-md-2 col-6">
+            <div class="card shadow-sm resumo-card border-primary h-100">
+                <div class="card-body text-center py-3">
+                    <div class="resumo-lab">{{ periodo_a.nome }}</div>
+                    <div class="resumo-num text-primary">{{ resumo.total_qa }}</div>
+                    <div class="resumo-lab">caixas</div>
+                    <hr class="my-1">
+                    <div class="resumo-lab fw-bold">R$ {{ "%.0f"|format(resumo.total_va) }}</div>
+                    <div class="resumo-lab">valor negociado</div>
+                </div>
             </div>
         </div>
 
-        {% if comparativo %}
+        <div class="col-md-2 col-6">
+            <div class="card shadow-sm resumo-card border-success h-100">
+                <div class="card-body text-center py-3">
+                    <div class="resumo-lab">{{ periodo_b.nome }}</div>
+                    <div class="resumo-num text-success">{{ resumo.total_qb }}</div>
+                    <div class="resumo-lab">caixas</div>
+                    <hr class="my-1">
+                    <div class="resumo-lab fw-bold">R$ {{ "%.0f"|format(resumo.total_vb) }}</div>
+                    <div class="resumo-lab">valor negociado</div>
+                </div>
+            </div>
+        </div>
 
-        <!-- Resumo executivo -->
-        {% set total_a = comparativo | sum(attribute='qtd_a') %}
-        {% set total_b = comparativo | sum(attribute='qtd_b') %}
-        {% set variacao_total = ((total_b - total_a) / total_a * 100) if total_a > 0 else 0 %}
-        {% set aumentaram = comparativo | selectattr('variacao', 'gt', 0) | list | length %}
-        {% set reduziram  = comparativo | selectattr('variacao', 'lt', 0) | list | length %}
-        {% set novos      = comparativo | selectattr('qtd_a', 'eq', 0) | list | length %}
-
-        <div class="row mb-4 g-3">
-            <div class="col-md-3">
-                <div class="card shadow-sm resumo-card border-primary h-100">
-                    <div class="card-body text-center">
-                        <div class="text-muted small">Total {{ periodo_a.nome }}</div>
-                        <div class="fs-3 fw-bold text-primary">{{ total_a }}</div>
-                        <div class="text-muted small">caixas</div>
+        <div class="col-md-2 col-6">
+            <div class="card shadow-sm resumo-card
+                {{ 'border-danger' if resumo.var_qtd_pct > 0 else 'border-success' }} h-100">
+                <div class="card-body text-center py-3">
+                    <div class="resumo-lab">Var. Quantidade</div>
+                    <div class="resumo-num {{ 'var-up' if resumo.var_qtd_pct > 0 else 'var-down' }}">
+                        {{ '%+.1f' % resumo.var_qtd_pct }}%
                     </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card shadow-sm resumo-card border-success h-100">
-                    <div class="card-body text-center">
-                        <div class="text-muted small">Total {{ periodo_b.nome }}</div>
-                        <div class="fs-3 fw-bold text-success">{{ total_b }}</div>
-                        <div class="text-muted small">caixas</div>
+                    <div class="resumo-lab">
+                        {{ resumo.total_qb - resumo.total_qa }} caixas
                     </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card shadow-sm resumo-card {{ 'border-danger' if variacao_total > 0 else 'border-success' }} h-100">
-                    <div class="card-body text-center">
-                        <div class="text-muted small">Variação Total</div>
-                        <div class="fs-3 fw-bold {{ 'variacao-pos' if variacao_total > 0 else 'variacao-neg' }}">
-                            {{ '%+.1f' % variacao_total }}%
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card shadow-sm resumo-card border-warning h-100">
-                    <div class="card-body text-center">
-                        <div class="text-muted small">Aumentaram</div>
-                        <div class="fs-3 fw-bold text-danger">{{ aumentaram }}</div>
-                        <div class="text-muted small">produtos</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card shadow-sm resumo-card border-info h-100">
-                    <div class="card-body text-center">
-                        <div class="text-muted small">Reduziram</div>
-                        <div class="fs-3 fw-bold text-success">{{ reduziram }}</div>
-                        <div class="text-muted small">produtos</div>
+                    <hr class="my-1">
+                    <div class="resumo-lab">Var. Valor</div>
+                    <div class="resumo-lab fw-bold
+                        {{ 'text-danger' if resumo.var_val_pct > 0 else 'text-success' }}">
+                        {{ '%+.1f' % resumo.var_val_pct }}%
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Tabela de comparativo -->
-        <div class="card shadow-sm">
-            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between">
-                <span>Detalhe por Produto ({{ comparativo | length }} itens)</span>
-                <div class="d-flex gap-2 align-items-center">
-                    <input type="text" id="busca" class="form-control form-control-sm"
-                           placeholder="Filtrar produto..." style="width:200px"
-                           oninput="filtrar(this.value)">
-                </div>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                    <table class="table table-sm table-hover mb-0 align-middle" id="tabela">
-                        <thead class="sticky-header">
-                            <tr>
-                                <th>Produto</th>
-                                <th class="text-center">Qtd A</th>
-                                <th class="text-center">Qtd B</th>
-                                <th class="text-center">Variação</th>
-                                <th class="text-center">Preço A</th>
-                                <th class="text-center">Preço B</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in comparativo %}
-                            <tr class="linha-comp" data-nome="{{ item.nome | lower }}">
-                                <td>
-                                    <strong>{{ item.nome }}</strong>
-                                    <div class="col-lab">{{ item.laboratorio }}</div>
-                                </td>
-                                <td class="text-center">{{ item.qtd_a }}</td>
-                                <td class="text-center">{{ item.qtd_b }}</td>
-                                <td class="text-center">
-                                    {% if item.variacao is none %}
-                                        <span class="badge bg-info text-dark">Novo</span>
-                                    {% elif item.variacao > 0 %}
-                                        <span class="variacao-pos">▲ {{ '%.1f' % item.variacao }}%</span>
-                                    {% elif item.variacao < 0 %}
-                                        <span class="variacao-neg">▼ {{ '%.1f' % (item.variacao * -1) }}%</span>
-                                    {% else %}
-                                        <span class="variacao-zero">= 0%</span>
-                                    {% endif %}
-                                </td>
-                                <td class="text-center text-muted small">R$ {{ "%.2f" % item.preco_a }}</td>
-                                <td class="text-center small
-                                    {% if item.preco_b != item.preco_a %}text-danger fw-bold{% else %}text-muted{% endif %}">
-                                    R$ {{ "%.2f" % item.preco_b }}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+        <div class="col-md-2 col-6">
+            <div class="card shadow-sm resumo-card border-warning h-100">
+                <div class="card-body text-center py-3">
+                    <div class="resumo-lab text-danger fw-bold">▲ Aumentaram</div>
+                    <div class="resumo-num text-danger">{{ resumo.aumentaram }}</div>
+                    <div class="resumo-lab">produtos</div>
+                    <hr class="my-1">
+                    <div class="resumo-lab text-success fw-bold">▼ Reduziram</div>
+                    <div class="resumo-num text-success">{{ resumo.reduziram }}</div>
+                    <div class="resumo-lab">produtos</div>
                 </div>
             </div>
         </div>
 
-        {% elif id_a and id_b %}
-        <div class="alert alert-info text-center">
-            Nenhum produto pedido em comum entre os dois períodos selecionados.
+        <div class="col-md-2 col-6">
+            <div class="card shadow-sm resumo-card border-info h-100">
+                <div class="card-body text-center py-3">
+                    <div class="resumo-lab">= Iguais</div>
+                    <div class="resumo-num text-secondary">{{ resumo.iguais }}</div>
+                    <div class="resumo-lab">produtos</div>
+                    <hr class="my-1">
+                    <div class="resumo-lab">🆕 Novos em B</div>
+                    <div class="resumo-num text-primary">{{ resumo.novos }}</div>
+                    <div class="resumo-lab">produtos</div>
+                </div>
+            </div>
         </div>
-        {% endif %}
+
+        <div class="col-md-2 col-6">
+            <div class="card shadow-sm resumo-card border-secondary h-100">
+                <div class="card-body text-center py-3">
+                    <div class="resumo-lab">💰 Preço alterado</div>
+                    <div class="resumo-num text-warning">{{ resumo.preco_dif }}</div>
+                    <div class="resumo-lab">produtos</div>
+                    <hr class="my-1">
+                    <div class="resumo-lab">⬜ Zerados em B</div>
+                    <div class="resumo-num text-muted">{{ resumo.zerados_b }}</div>
+                    <div class="resumo-lab">produtos</div>
+                </div>
+            </div>
+        </div>
 
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
-    <script>
-        function filtrar(termo) {
-            const t = termo.toLowerCase();
-            document.querySelectorAll('.linha-comp').forEach(tr => {
-                tr.style.display = tr.dataset.nome.includes(t) ? '' : 'none';
-            });
+    <!-- ── Filtros ────────────────────────────────────────────────────── -->
+    <div class="card shadow-sm mb-3 no-print">
+        <div class="card-body py-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="text-muted fw-bold small">Mostrar:</span>
+                <button class="filtro-btn ativo" onclick="aplicarFiltro('todos', this)">
+                    Todos ({{ comparativo | length }})
+                </button>
+                <button class="filtro-btn" onclick="aplicarFiltro('up', this)">
+                    ▲ Aumentaram ({{ resumo.aumentaram }})
+                </button>
+                <button class="filtro-btn" onclick="aplicarFiltro('down', this)">
+                    ▼ Reduziram ({{ resumo.reduziram }})
+                </button>
+                <button class="filtro-btn" onclick="aplicarFiltro('novo', this)">
+                    🆕 Novos ({{ resumo.novos }})
+                </button>
+                <button class="filtro-btn" onclick="aplicarFiltro('preco', this)">
+                    💰 Preço alterado ({{ resumo.preco_dif }})
+                </button>
+                <button class="filtro-btn" onclick="aplicarFiltro('zero_b', this)">
+                    ⬜ Zerados em B ({{ resumo.zerados_b }})
+                </button>
+                <div class="ms-auto">
+                    <div class="input-group input-group-sm" style="width:220px">
+                        <span class="input-group-text">🔍</span>
+                        <input type="text" class="form-control"
+                               placeholder="Filtrar produto..."
+                               oninput="filtrar(this.value)">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Tabela principal ───────────────────────────────────────────── -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
+            <span id="contadorLinhas">{{ comparativo | length }} produto(s)</span>
+            <div class="d-flex gap-3 small">
+                <span style="background:#f8f9ff;color:#333;padding:2px 8px;border-radius:4px;">■ Período A</span>
+                <span style="background:#f0fff4;color:#333;padding:2px 8px;border-radius:4px;">■ Período B</span>
+                <span style="background:#fffde7;color:#333;padding:2px 8px;border-radius:4px;">■ Diferença</span>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="tabela-wrapper">
+                <table class="table table-sm mb-0" id="tabelaComp">
+                    <thead>
+                        <tr>
+                            <th onclick="ordenar('nome')">Produto / Lab <span class="sort-ic">⇅</span></th>
+                            <th class="col-a" onclick="ordenar('qtd_a')">Qtd A <span class="sort-ic">⇅</span></th>
+                            <th class="col-a" onclick="ordenar('preco_a')">Preço A <span class="sort-ic">⇅</span></th>
+                            <th class="col-a" onclick="ordenar('desc_a')">Desc A <span class="sort-ic">⇅</span></th>
+                            <th class="col-a" onclick="ordenar('valor_a')">Valor A <span class="sort-ic">⇅</span></th>
+                            <th class="col-b" onclick="ordenar('qtd_b')">Qtd B <span class="sort-ic">⇅</span></th>
+                            <th class="col-b" onclick="ordenar('preco_b')">Preço B <span class="sort-ic">⇅</span></th>
+                            <th class="col-b" onclick="ordenar('desc_b')">Desc B <span class="sort-ic">⇅</span></th>
+                            <th class="col-b" onclick="ordenar('valor_b')">Valor B <span class="sort-ic">⇅</span></th>
+                            <th class="col-diff" onclick="ordenar('variacao')">Var % <span class="sort-ic">⇅</span></th>
+                            <th class="col-diff" onclick="ordenar('diff_val')">Δ Valor <span class="sort-ic">⇅</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in comparativo %}
+                        <tr class="linha-comp"
+                            data-nome="{{ item.nome | lower }}"
+                            data-tipo="{{ item.variacao_tipo }}"
+                            data-preco-mudou="{{ 'sim' if item.preco_mudou else 'nao' }}"
+                            data-qtd-b="{{ item.qtd_b }}"
+                            data-qtd-a="{{ item.qtd_a }}"
+                            data-preco-a="{{ item.preco_a }}"
+                            data-preco-b="{{ item.preco_b }}"
+                            data-desc-a="{{ item.desc_a }}"
+                            data-desc-b="{{ item.desc_b }}"
+                            data-valor-a="{{ item.valor_a }}"
+                            data-valor-b="{{ item.valor_b }}"
+                            data-variacao="{{ item.variacao if item.variacao is not none else -9999 }}"
+                            data-diff-val="{{ item.diff_val }}">
+
+                            <td>
+                                <strong>{{ item.nome }}</strong>
+                                <div>
+                                    <span class="badge-lab">{{ item.laboratorio }}</span>
+                                    {% if item.unidade_caixa > 1 %}
+                                    <span class="badge bg-light text-muted border ms-1"
+                                          style="font-size:0.65rem;">{{ item.unidade_caixa }} un/cx</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+
+                            <!-- Período A -->
+                            <td class="col-a text-center fw-bold">{{ item.qtd_a if item.qtd_a > 0 else '—' }}</td>
+                            <td class="col-a text-center">R$ {{ "%.2f" % item.preco_a }}</td>
+                            <td class="col-a text-center">
+                                {% if item.desc_a > 0 %}<span class="text-primary fw-bold">{{ "%.0f" % item.desc_a }}%</span>{% else %}—{% endif %}
+                            </td>
+                            <td class="col-a text-center">
+                                {% if item.valor_a > 0 %}R$ {{ "%.0f" % item.valor_a }}{% else %}—{% endif %}
+                            </td>
+
+                            <!-- Período B -->
+                            <td class="col-b text-center fw-bold">{{ item.qtd_b if item.qtd_b > 0 else '—' }}</td>
+                            <td class="col-b text-center {{ 'preco-alterado' if item.preco_mudou }}"
+                                title="{{ '⚠️ Preço alterado' if item.preco_mudou else '' }}">
+                                R$ {{ "%.2f" % item.preco_b }}{% if item.preco_mudou %} ⚠️{% endif %}
+                            </td>
+                            <td class="col-b text-center">
+                                {% if item.desc_b > 0 %}<span class="text-primary fw-bold">{{ "%.0f" % item.desc_b }}%</span>{% else %}—{% endif %}
+                            </td>
+                            <td class="col-b text-center">
+                                {% if item.valor_b > 0 %}R$ {{ "%.0f" % item.valor_b }}{% else %}—{% endif %}
+                            </td>
+
+                            <!-- Diferença -->
+                            <td class="col-diff text-center">
+                                {% if item.variacao_tipo == 'novo' %}
+                                    <span class="badge bg-info text-dark">🆕 Novo</span>
+                                {% elif item.variacao_tipo == 'up' %}
+                                    <span class="var-up">▲ {{ '%.1f' % item.variacao }}%</span>
+                                {% elif item.variacao_tipo == 'down' %}
+                                    <span class="var-down">▼ {{ '%.1f' % (item.variacao * -1) }}%</span>
+                                {% else %}
+                                    <span class="var-zero">= 0%</span>
+                                {% endif %}
+                            </td>
+                            <td class="col-diff text-center">
+                                {% if item.diff_val > 0 %}
+                                    <span class="var-up">+R$ {{ "%.0f" % item.diff_val }}</span>
+                                {% elif item.diff_val < 0 %}
+                                    <span class="var-down">-R$ {{ "%.0f" % (item.diff_val * -1) }}</span>
+                                {% else %}
+                                    <span class="var-zero">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+
+                    <tfoot>
+                        <tr style="background:#212529;color:#fff;font-weight:bold;font-size:0.82rem;">
+                            <td class="px-3">TOTAL ({{ comparativo | length }} produtos)</td>
+                            <td class="text-center" style="background:#e8eaf6;color:#1a237e;">{{ resumo.total_qa }}</td>
+                            <td style="background:#e8eaf6;"></td>
+                            <td style="background:#e8eaf6;"></td>
+                            <td class="text-center" style="background:#e8eaf6;color:#1a237e;">R$ {{ "%.0f" % resumo.total_va }}</td>
+                            <td class="text-center" style="background:#c8e6c9;color:#1b5e20;">{{ resumo.total_qb }}</td>
+                            <td style="background:#c8e6c9;"></td>
+                            <td style="background:#c8e6c9;"></td>
+                            <td class="text-center" style="background:#c8e6c9;color:#1b5e20;">R$ {{ "%.0f" % resumo.total_vb }}</td>
+                            <td class="text-center" style="background:#fff9c4;">
+                                <span class="{{ 'var-up' if resumo.var_qtd_pct > 0 else 'var-down' }}">
+                                    {{ '%+.1f' % resumo.var_qtd_pct }}%
+                                </span>
+                            </td>
+                            <td class="text-center" style="background:#fff9c4;">
+                                <span class="{{ 'var-up' if resumo.diff_val_total > 0 else 'var-down' }}">
+                                    {{ '+' if resumo.diff_val_total > 0 else '' }}R$ {{ "%.0f" % resumo.diff_val_total }}
+                                </span>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% elif id_a and id_b %}
+    <div class="alert alert-info text-center py-5">
+        <div style="font-size:2rem;">📭</div>
+        <h5 class="mt-2 fw-bold">Nenhum produto em comum entre os dois períodos selecionados.</h5>
+    </div>
+
+    {% else %}
+    <div class="estado-inicial no-print">
+        <span class="icone">📊</span>
+        <h5 class="fw-bold">Selecione dois períodos para comparar</h5>
+        <p class="text-muted">O comparativo mostrará quantidades, preços, descontos e variações produto a produto.</p>
+    </div>
+    {% endif %}
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+<script>
+let filtroAtivo = 'todos';
+let buscaAtiva  = '';
+let ordemAtual  = { col: null, dir: 'desc' };
+
+function aplicarFiltro(tipo, btn) {
+    filtroAtivo = tipo;
+    document.querySelectorAll('.filtro-btn').forEach(b => b.classList.remove('ativo'));
+    btn.classList.add('ativo');
+    renderLinhas();
+}
+
+function filtrar(termo) {
+    buscaAtiva = termo.toLowerCase().trim();
+    renderLinhas();
+}
+
+function renderLinhas() {
+    let visiveis = 0;
+    document.querySelectorAll('.linha-comp').forEach(tr => {
+        const tipo       = tr.dataset.tipo;
+        const precoMudou = tr.dataset.precoMudou === 'sim';
+        const qtdB       = parseInt(tr.dataset.qtdB);
+        const nome       = tr.dataset.nome;
+
+        let mostra = true;
+        if      (filtroAtivo === 'up')     mostra = tipo === 'up';
+        else if (filtroAtivo === 'down')   mostra = tipo === 'down';
+        else if (filtroAtivo === 'novo')   mostra = tipo === 'novo';
+        else if (filtroAtivo === 'preco')  mostra = precoMudou;
+        else if (filtroAtivo === 'zero_b') mostra = qtdB === 0;
+
+        const mostraBusca = !buscaAtiva || nome.includes(buscaAtiva);
+        const visivel = mostra && mostraBusca;
+        tr.style.display = visivel ? '' : 'none';
+        if (visivel) visiveis++;
+    });
+    document.getElementById('contadorLinhas').textContent = visiveis + ' produto(s)';
+}
+
+function ordenar(col) {
+    const tbody  = document.querySelector('#tabelaComp tbody');
+    const linhas = Array.from(tbody.querySelectorAll('.linha-comp'));
+    const dir    = (ordemAtual.col === col && ordemAtual.dir === 'desc') ? 'asc' : 'desc';
+    ordemAtual   = { col, dir };
+
+    document.querySelectorAll('thead th').forEach(th => th.classList.remove('ordenado'));
+
+    const mapa = {
+        qtd_a: 'qtdA', qtd_b: 'qtdB', preco_a: 'precoA', preco_b: 'precoB',
+        desc_a: 'descA', desc_b: 'descB', valor_a: 'valorA', valor_b: 'valorB',
+        variacao: 'variacao', diff_val: 'diffVal'
+    };
+
+    linhas.sort((a, b) => {
+        if (col === 'nome') {
+            return dir === 'asc'
+                ? a.dataset.nome.localeCompare(b.dataset.nome)
+                : b.dataset.nome.localeCompare(a.dataset.nome);
         }
-    </script>
+        const campo = mapa[col];
+        const va = parseFloat(a.dataset[campo]) || 0;
+        const vb = parseFloat(b.dataset[campo]) || 0;
+        return dir === 'desc' ? vb - va : va - vb;
+    });
+
+    linhas.forEach(tr => tbody.appendChild(tr));
+}
+</script>
 </body>
 </html>
