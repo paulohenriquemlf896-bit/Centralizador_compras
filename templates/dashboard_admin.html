@@ -380,6 +380,34 @@
 
         // Inicializar ao carregar a página
         document.addEventListener('DOMContentLoaded', initializeTabs);
+
+        // ── Persiste filtro de mês no localStorage ────────────────────────
+        (function() {
+            const CHAVE = 'dashboard_filtro_data';
+            const select = document.querySelector('select[name="filtro_data"]');
+            if (!select) return;
+
+            // Se a URL já tem o filtro aplicado, salva/atualiza no storage
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('filtro_data')) {
+                localStorage.setItem(CHAVE, params.get('filtro_data'));
+            } else {
+                // Sem filtro na URL: verifica se há um salvo e redireciona
+                const salvo = localStorage.getItem(CHAVE);
+                if (salvo) {
+                    params.set('filtro_data', salvo);
+                    window.location.replace('?' + params.toString());
+                }
+            }
+
+            // Ao clicar em Limpar, remove do storage
+            const btnLimpar = document.querySelector('a.btn-outline-danger');
+            if (btnLimpar) {
+                btnLimpar.addEventListener('click', () => {
+                    localStorage.removeItem(CHAVE);
+                });
+            }
+        })();
     </script>
 </body>
 </html>

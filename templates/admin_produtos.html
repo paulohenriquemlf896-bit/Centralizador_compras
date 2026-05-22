@@ -290,6 +290,45 @@
             _t = setTimeout(() => document.getElementById('formFiltro').submit(), 400);
         });
 
+        // ── Persiste filtros no localStorage ─────────────────────────────
+        (function() {
+            const CHAVE = 'produtos_filtro';
+            const params = new URLSearchParams(window.location.search);
+            const temFiltro = params.has('q') || params.has('lab') || params.has('grp');
+
+            if (temFiltro) {
+                // Salva o estado atual dos filtros
+                localStorage.setItem(CHAVE, JSON.stringify({
+                    q:   params.get('q')   || '',
+                    lab: params.get('lab') || '',
+                    grp: params.get('grp') || '',
+                }));
+            } else if (!params.has('pagina')) {
+                // Sem filtro e sem paginação: restaura se houver salvo
+                const salvo = localStorage.getItem(CHAVE);
+                if (salvo) {
+                    const f = JSON.parse(salvo);
+                    if (f.q || f.lab || f.grp) {
+                        const p = new URLSearchParams();
+                        if (f.q)   p.set('q',   f.q);
+                        if (f.lab) p.set('lab', f.lab);
+                        if (f.grp) p.set('grp', f.grp);
+                        window.location.replace('?' + p.toString());
+                    }
+                }
+            }
+
+            // Limpar filtros: remove do storage ao submeter sem valores
+            document.getElementById('formFiltro').addEventListener('submit', function() {
+                const q   = document.getElementById('campoBusca')?.value || '';
+                const lab = document.querySelector('select[name="lab"]')?.value || '';
+                const grp = document.querySelector('select[name="grp"]')?.value || '';
+                if (!q && !lab && !grp) {
+                    localStorage.removeItem(CHAVE);
+                }
+            });
+        })();
+
         // Usa data-attributes para não quebrar com nomes que têm aspas
         function abrirEdicao(btn) {
             document.getElementById('edit_id').value    = btn.dataset.id;

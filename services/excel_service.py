@@ -37,10 +37,12 @@ def ordenar_lojas(lojas):
     return sorted(lojas, key=lambda l: ORDEM_LOJAS.index(l.nome) if l.nome in ORDEM_LOJAS else 999)
 
 
-def gerar_excel_unico(periodo, laboratorio_nome, lojas_filtradas, db, Produto, ItemPedido, Pedido):
+def gerar_excel_unico(periodo, laboratorio_nome, lojas_filtradas, db, Produto, ItemPedido, Pedido, Negociacao):
     """
     Gera um Excel com os pedidos de UM laboratório para envio por e-mail.
     Retorna um objeto BytesIO pronto para anexar.
+
+    Colunas: PRODUTO | CX EMB | <lojas> | TOTAL | PREÇO TABELA | DESC % | PREÇO LÍQUIDO | VALOR FECHADO | BONIF %
 
     Parâmetros:
         periodo          — objeto Periodo do banco
@@ -50,9 +52,12 @@ def gerar_excel_unico(periodo, laboratorio_nome, lojas_filtradas, db, Produto, I
         Produto          — model Produto (injetado para evitar import circular)
         ItemPedido       — model ItemPedido
         Pedido           — model Pedido
+        Negociacao       — model Negociacao
     """
+    from openpyxl.utils import get_column_letter
 
     lojas = ordenar_lojas(lojas_filtradas)
+    n_lojas = len(lojas)
 
     wb = Workbook()
     if 'Sheet' in wb.sheetnames:
@@ -60,57 +65,161 @@ def gerar_excel_unico(periodo, laboratorio_nome, lojas_filtradas, db, Produto, I
 
     ws = wb.create_sheet(title=laboratorio_nome[:30])
 
-    # Cabeçalho linha 1
-    for col, (valor, fill) in enumerate([
-        ("PRODUTO", _BROWN), ("CX EMB", _BROWN)
-    ], start=1):
-        c = ws.cell(row=1, column=col, value=valor)
-        c.font = _WHITE; c.fill = fill; c.alignment = _CENTER; c.border = _BORDER
+    # ── Índices de coluna ─────────────────────────────────────────────────
+    col_produto  = 1
+    col_cxemb    = 2
+    col_loja_ini = 3
+    col_loja_fim = col_loja_ini + n_lojas - 1
+    col_total    = col_loja_fim + 1
+    col_preco    = col_total + 1
+    col_negoc    = col_preco + 1          # início do bloco NEGOCIAÇÃO
+    col_desc     = col_negoc
+    col_pliq     = col_negoc + 1
+    col_vfech    = col_negoc + 2
+    col_bonif    = col_negoc + 3
+    col_last     = col_bonif
 
-    col = 3
-    for loja in lojas:
-        c = ws.cell(row=1, column=col, value=_nome_col(loja))
-        c.font = _WHITE; c.fill = _BROWN; c.alignment = _CENTER
-        col += 1
+    # ── Linha 1: cabeçalhos fixos e merge do bloco NEGOCIAÇÃO ────────────
+    # PRODUTO
+    c = ws.cell(row=1, column=col_produto, value="PRODUTO")
+    c.font = _WHITE; c.fill = _BROWN; c.alignment = _CENTER; c.border = _BORDER
 
-    ws.cell(row=1, column=col, value="TOTAL").font = _WHITE
-    ws.cell(row=1, column=col).fill = _BROWN
+    # CX EMB
+    c = ws.cell(row=1, column=col_cxemb, value="CX EMB")
+    c.font = _WHITE; c.fill = _BROWN; c.alignment = _CENTER; c.border = _BORDER
 
-    # Dados
-    row = 2
+    # Lojas
+    for i, loja in enumerate(lojas):
+        c = ws.cell(row=1, column=col_loja_ini + i, value=_nome_col(loja))
+        c.font = _WHITE; c.fill = _BROWN; c.alignment = _CENTER; c.border = _BORDER
+
+    # TOTAL
+    c = ws.cell(row=1, column=col_total, value="TOTAL")
+    c.font = _WHITE; c.fill = _RED; c.alignment = _CENTER; c.border = _BORDER
+
+    # PREÇO TABELA
+    c = ws.cell(row=1, column=col_preco, value="PREÇO\nTABELA")
+    c.font = _WHITE; c.fill = _GRAY
+    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    c.border = _BORDER
+
+    # NEGOCIAÇÃO (merge das 4 sub-colunas)
+    ws.merge_cells(start_row=1, start_column=col_negoc, end_row=1, end_column=col_last)
+    c = ws.cell(row=1, column=col_negoc, value="NEGOCIAÇÃO")
+    c.font = _WHITE; c.fill = _DARK; c.alignment = _CENTER; c.border = _BORDER
+
+    # ── Linha 2: sub-cabeçalhos do bloco NEGOCIAÇÃO ───────────────────────
+    # Linha 2 só existe para as colunas de negociação; demais ficam vazias mas bordadas
+    for col_idx in [col_produto, col_cxemb] + list(range(col_loja_ini, col_total + 1)) + [col_preco]:
+        c = ws.cell(row=2, column=col_idx, value="")
+        c.border = _BORDER
+
+    for label, col_idx in [
+        ("DESC %",        col_desc),
+        ("PREÇO\nLÍQUIDO", col_pliq),
+        ("VALOR\nFECHADO", col_vfech),
+        ("BONIF %",       col_bonif),
+    ]:
+        c = ws.cell(row=2, column=col_idx, value=label)
+        c.font = _WHITE; c.fill = _DARK
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = _BORDER
+
+    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[2].height = 28
+
+    # ── Busca produtos ────────────────────────────────────────────────────
     produtos = Produto.query.filter_by(
         grupo=periodo.grupo_filtro,
         laboratorio=laboratorio_nome
     ).order_by(Produto.nome).all()
 
-    for p in produtos:
-        ws.cell(row=row, column=1, value=p.nome).border = _BORDER
-        ws.cell(row=row, column=2, value=p.unidade_caixa).alignment = _CENTER
-        ws.cell(row=row, column=2).border = _BORDER
+    ids_produtos = [p.id for p in produtos]
 
-        col = 3
+    # ── Busca quantidades (1 query) ───────────────────────────────────────
+    rows_qtd = db.session.query(
+        ItemPedido.produto_id,
+        Pedido.loja_id,
+        db.func.sum(ItemPedido.quantidade).label('total')
+    ).join(Pedido, Pedido.id == ItemPedido.pedido_id)\
+     .filter(
+         Pedido.periodo_id == periodo.id,
+         ItemPedido.produto_id.in_(ids_produtos)
+     ).group_by(ItemPedido.produto_id, Pedido.loja_id).all()
+
+    qtd_map = {(r.produto_id, r.loja_id): int(r.total or 0) for r in rows_qtd}
+
+    # ── Busca negociações (1 query) ───────────────────────────────────────
+    neg_map = {
+        n.produto_id: n
+        for n in Negociacao.query.filter_by(periodo_id=periodo.id)
+                           .filter(Negociacao.produto_id.in_(ids_produtos)).all()
+    }
+
+    # ── Dados (a partir da linha 3) ───────────────────────────────────────
+    for row, p in enumerate(produtos, start=3):
+        # Produto
+        c = ws.cell(row=row, column=col_produto, value=p.nome)
+        c.border = _BORDER
+
+        # CX EMB
+        c = ws.cell(row=row, column=col_cxemb, value=p.unidade_caixa)
+        c.alignment = _CENTER; c.border = _BORDER
+
+        # Quantidades por loja
         total_linha = 0
-        for loja in lojas:
-            qtd = db.session.query(
-                db.func.sum(ItemPedido.quantidade)
-            ).join(Pedido).filter(
-                ItemPedido.produto_id == p.id,
-                Pedido.loja_id == loja.id,
-                Pedido.periodo_id == periodo.id
-            ).scalar() or 0
-
-            c = ws.cell(row=row, column=col, value=qtd)
+        for i, loja in enumerate(lojas):
+            qtd = qtd_map.get((p.id, loja.id), 0)
+            c = ws.cell(row=row, column=col_loja_ini + i, value=qtd)
             c.alignment = _CENTER; c.border = _BORDER
             if qtd == 0:
                 c.font = Font(color="CCCCCC")
             total_linha += qtd
-            col += 1
 
-        c = ws.cell(row=row, column=col, value=total_linha)
-        c.font = _BOLD; c.alignment = _CENTER; c.border = _BORDER
-        row += 1
+        # TOTAL
+        c = ws.cell(row=row, column=col_total, value=total_linha)
+        c.font = Font(color="FFFFFF", bold=True)
+        c.fill = _RED; c.alignment = _CENTER; c.border = _BORDER
 
+        # PREÇO TABELA
+        c = ws.cell(row=row, column=col_preco, value=p.preco)
+        c.number_format = 'R$ #,##0.00'
+        c.fill = _GRAY; c.alignment = _CENTER; c.border = _BORDER
+        c.font = Font(color="FFFFFF", bold=True)
+
+        # Negociação
+        negoc   = neg_map.get(p.id)
+        desc    = float(negoc.desconto    if negoc else 0.0)
+        bonif   = float(negoc.bonificacao if negoc else 0.0)
+        p_liq   = p.preco * (1 - desc / 100)
+        v_fech  = p_liq * total_linha
+
+        # DESC %
+        c = ws.cell(row=row, column=col_desc, value=desc)
+        c.fill = _DARK; c.alignment = _CENTER; c.border = _BORDER
+        c.font = Font(color="4FC3F7", bold=True)   # azul claro
+
+        # PREÇO LÍQUIDO
+        c = ws.cell(row=row, column=col_pliq, value=p_liq)
+        c.number_format = 'R$ #,##0.00'
+        c.fill = _DARK; c.alignment = _CENTER; c.border = _BORDER
+        c.font = Font(color="A5D6A7", bold=True)   # verde claro
+
+        # VALOR FECHADO
+        c = ws.cell(row=row, column=col_vfech, value=v_fech)
+        c.number_format = 'R$ #,##0.00'
+        c.fill = _DARK; c.alignment = _CENTER; c.border = _BORDER
+        c.font = Font(color="A5D6A7", bold=True)
+
+        # BONIF %
+        c = ws.cell(row=row, column=col_bonif, value=bonif)
+        c.fill = _DARK; c.alignment = _CENTER; c.border = _BORDER
+        c.font = Font(color="FFFFFF", bold=True)
+
+    # ── Larguras ──────────────────────────────────────────────────────────
     ws.column_dimensions['A'].width = 30
+    for ci in range(col_cxemb, col_last + 1):
+        ws.column_dimensions[get_column_letter(ci)].width = 14
 
     output = io.BytesIO()
     wb.save(output)

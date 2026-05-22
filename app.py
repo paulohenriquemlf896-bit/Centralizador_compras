@@ -8,7 +8,7 @@ from services.excel_service import (
     gerar_excel_consolidado,
     ordenar_lojas,
 )
-from services.email_service import enviar_email_pedido, montar_corpo_pedido
+from services.email_service import enviar_email_pedido
 from openpyxl import load_workbook  # mantido para importar_produtos_excel
 from werkzeug.security import generate_password_hash, check_password_hash
 import random
@@ -16,11 +16,14 @@ import string
 import base64 
 import time
 import os
+import json
 from waitress import serve
 import logging
 from dotenv import load_dotenv
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import threading
+import uuid
 
 def esconder_senha(texto):
     if not texto: return None
@@ -58,7 +61,36 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
+ORDEM_LOJAS  = ["Pesqueira", "Recife", "Campina Grande", "Natal", "Maceió"]
+APELIDO_LOJA = {"Recife": "Cruza"}
+ 
+def ordenar_lojas_global(lojas):
+    """Ordena objetos Loja pela ordem comercial padrão."""
+    return sorted(
+        lojas,
+        key=lambda l: ORDEM_LOJAS.index(l.nome) if l.nome in ORDEM_LOJAS else 999
+    )
+ 
+def apelido_loja(nome: str) -> str:
+    """Retorna o apelido de exibição da loja (ex: Recife → Cruza)."""
+    return APELIDO_LOJA.get(nome, nome)
+
 # --- MODELOS ---
+
+class EnvioEmail(db.Model):
+    """Registra cada envio por período/fornecedor (múltiplos envios são permitidos)."""
+    id            = db.Column(db.Integer, primary_key=True)
+    periodo_id    = db.Column(db.Integer, db.ForeignKey('periodo.id'), nullable=False)
+    fornecedor_id = db.Column(db.Integer, db.ForeignKey('fornecedor.id'), nullable=False)
+    enviado_em    = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    usuario_id    = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_envio_periodo', 'periodo_id'),
+    )
+
+# Progresso dos jobs em memória  { job_id: {total, feitos, enviados, erros, concluido} }
+_JOBS: dict = {}
 
 class Configuracao(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -108,50 +140,67 @@ class Produto(db.Model):
     preco = db.Column(db.Float, default=0.00) 
 
 class Pedido(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    data_criacao = db.Column(db.DateTime, default=datetime.now)
-    data_alteracao = db.Column(db.DateTime, default=datetime.now) 
-    usuario_id = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=False)
-    loja_id = db.Column(db.Integer, db.ForeignKey('loja.id'), nullable=False)
-    periodo_id = db.Column(db.Integer, db.ForeignKey('periodo.id'), nullable=False) 
-    status = db.Column(db.String(20), default='Aberto') 
-
+    id             = db.Column(db.Integer, primary_key=True)
+    data_criacao   = db.Column(db.DateTime, default=datetime.now)
+    data_alteracao = db.Column(db.DateTime, default=datetime.now)
+    usuario_id     = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=False)
+    loja_id        = db.Column(db.Integer, db.ForeignKey('loja.id'),    nullable=False)
+    periodo_id     = db.Column(db.Integer, db.ForeignKey('periodo.id'), nullable=False)
+    status         = db.Column(db.String(20), default='Aberto')
+ 
+    __table_args__ = (
+        # Busca mais comum: "pedido desta loja neste período"
+        db.Index('ix_pedido_loja_periodo', 'loja_id', 'periodo_id'),
+        # Busca de todos os pedidos de um período (dashboard admin)
+        db.Index('ix_pedido_periodo', 'periodo_id'),
+    )
+ 
+ 
 class ItemPedido(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id         = db.Column(db.Integer, primary_key=True)
     quantidade = db.Column(db.Integer, nullable=False)
-    pedido_id = db.Column(db.Integer, db.ForeignKey('pedido.id'), nullable=False)
-    produto_id = db.Column(db.Integer, db.ForeignKey('produto.id'), nullable=False)
-    produto = db.relationship('Produto') 
-
+    pedido_id  = db.Column(db.Integer, db.ForeignKey('pedido.id'),   nullable=False)
+    produto_id = db.Column(db.Integer, db.ForeignKey('produto.id'),  nullable=False)
+    produto    = db.relationship('Produto')
+ 
+    __table_args__ = (
+        # Busca composta: "item deste pedido para este produto" (auto-save e consolidação)
+        db.Index('ix_item_pedido_ped_prod', 'pedido_id', 'produto_id'),
+        # Busca por produto para somar quantidades no comparativo e consolidação
+        db.Index('ix_item_pedido_produto', 'produto_id'),
+    )
+ 
+ 
 class Negociacao(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    periodo_id = db.Column(db.Integer, db.ForeignKey('periodo.id'), nullable=False)
-    produto_id = db.Column(db.Integer, db.ForeignKey('produto.id'), nullable=False)
-    desconto = db.Column(db.Float, default=0.0)
-    bonificacao = db.Column(db.Float, default=0.0)
-
-class Observacao(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    periodo_id = db.Column(db.Integer, db.ForeignKey('periodo.id'), nullable=False)
-    laboratorio = db.Column(db.String(100), nullable=False)
-    loja_id = db.Column(db.Integer, db.ForeignKey('loja.id'), nullable=True) 
-    texto = db.Column(db.Text, nullable=True)
-
-class Fornecedor(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    nome = db.Column(db.String(100), unique=True, nullable=False)
-    email = db.Column(db.String(100), nullable=True)
-
+    id         = db.Column(db.Integer, primary_key=True)
+    periodo_id = db.Column(db.Integer, db.ForeignKey('periodo.id'),  nullable=False)
+    produto_id = db.Column(db.Integer, db.ForeignKey('produto.id'),  nullable=False)
+    desconto   = db.Column(db.Float, default=0.0)
+    bonificacao= db.Column(db.Float, default=0.0)
+ 
+    __table_args__ = (
+        # Busca composta: "negociação deste produto neste período"
+        db.Index('ix_negociacao_periodo_produto', 'periodo_id', 'produto_id'),
+    )
+ 
+ 
 class LogAuditoria(db.Model):
     """Registra ações sensíveis: alteração de preço, desconto, envio de e-mail, etc."""
     id          = db.Column(db.Integer, primary_key=True)
     data_hora   = db.Column(db.DateTime, default=datetime.now, nullable=False)
     usuario_id  = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=True)
     usuario     = db.relationship('Usuario', backref=db.backref('logs', lazy=True))
-    acao        = db.Column(db.String(80),  nullable=False)   # ex: 'PRECO_ALTERADO'
-    entidade    = db.Column(db.String(80),  nullable=True)    # ex: 'Produto'
-    entidade_id = db.Column(db.Integer,     nullable=True)    # ex: 42
-    detalhe     = db.Column(db.Text,        nullable=True)    # JSON ou texto livre
+    acao        = db.Column(db.String(80),  nullable=False)
+    entidade    = db.Column(db.String(80),  nullable=True)
+    entidade_id = db.Column(db.Integer,     nullable=True)
+    detalhe     = db.Column(db.Text,        nullable=True)
+ 
+    __table_args__ = (
+        # Busca por entidade + id (historico_preco, auditoria por produto)
+        db.Index('ix_log_entidade_id', 'entidade', 'entidade_id'),
+        # Busca por ação (filtro da tela de auditoria)
+        db.Index('ix_log_acao', 'acao'),
+    )
 
 class ProgressoLaboratorio(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -159,6 +208,26 @@ class ProgressoLaboratorio(db.Model):
     loja_id = db.Column(db.Integer, db.ForeignKey('loja.id'), nullable=False)
     laboratorio = db.Column(db.String(100), nullable=False)
     concluido = db.Column(db.Boolean, default=False)
+
+class Fornecedor(db.Model):
+    id    = db.Column(db.Integer, primary_key=True)
+    nome  = db.Column(db.String(100), unique=True, nullable=False)
+    email = db.Column(db.String(100), nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_fornecedor_nome', 'nome'),
+    )
+
+class Observacao(db.Model):
+    id          = db.Column(db.Integer, primary_key=True)
+    periodo_id  = db.Column(db.Integer, db.ForeignKey('periodo.id'), nullable=False)
+    laboratorio = db.Column(db.String(100), nullable=False)
+    loja_id     = db.Column(db.Integer, db.ForeignKey('loja.id'), nullable=True)
+    texto       = db.Column(db.Text, nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_obs_periodo_lab', 'periodo_id', 'laboratorio'),
+    )
 
 def registrar_log(acao, entidade=None, entidade_id=None, detalhe=None):
     """Helper: grava um registro de auditoria. Silencioso se não houver sessão ativa."""
@@ -176,33 +245,36 @@ def registrar_log(acao, entidade=None, entidade_id=None, detalhe=None):
     except Exception as e:
         app.logger.warning(f'Falha ao registrar log de auditoria: {e}')
 
-ultima_verificacao = None
 
 @app.before_request
 def verificar_datas_e_periodos():
     """
-    FIX 10: Rotina diária robusta de manutenção de períodos.
-    - Cada etapa tem seu próprio try/except com rollback isolado.
-    - O admin é notificado no log de erro com mensagem descritiva.
-    - ultima_verificacao só avança se AMBAS as etapas concluírem sem erro crítico.
-    - Nunca deixa a sessão do banco em estado inconsistente.
+    Rotina diária de manutenção de períodos com lock distribuído via banco.
+    Usa a tabela Configuracao para coordenar entre todos os processos/threads
+    do Waitress — elimina a variável global `ultima_verificacao`.
     """
-    global ultima_verificacao
-
     if request.endpoint and 'static' in request.endpoint:
         return
-
-    hoje = date.today()
-    if ultima_verificacao == hoje:
-        return
-
+ 
+    hoje_str = date.today().isoformat()   # ex: '2025-01-15'
+ 
+    # ── Verifica no banco se já rodou hoje (lock distribuído) ────────
+    try:
+        lock = Configuracao.query.filter_by(chave='rotina_ultima_verificacao').first()
+        if lock and lock.valor == hoje_str:
+            return   # Outro processo já executou hoje — nada a fazer
+    except Exception as e:
+        app.logger.warning(f"[Rotina] Não foi possível ler o lock do banco: {e}")
+        return       # Em caso de erro de banco, não tenta executar
+ 
     etapa1_ok = False
     etapa2_ok = False
-
-    # ── Etapa 1: Fecha períodos vencidos ────────────────────────────────────
+ 
+    # ── Etapa 1: Fecha períodos vencidos ─────────────────────────────
     try:
+        hoje       = date.today()
         periodos_abertos = Periodo.query.filter_by(ativo=True).all()
-        fechados = 0
+        fechados   = 0
         for p in periodos_abertos:
             if hoje > p.data_limite:
                 p.ativo = False
@@ -217,9 +289,10 @@ def verificar_datas_e_periodos():
             f"[Rotina] FALHA ao fechar períodos vencidos: {e}. "
             "Verifique a conexão com o banco de dados."
         )
-
-    # ── Etapa 2: Cria novos períodos baseado nos grupos ──────────────────────
+ 
+    # ── Etapa 2: Cria novos períodos baseado nos grupos ──────────────
     try:
+        hoje          = date.today()
         grupos_regras = Grupo.query.all()
         if not grupos_regras:
             etapa2_ok = True
@@ -227,20 +300,20 @@ def verificar_datas_e_periodos():
             criados = 0
             for g in grupos_regras:
                 dia_limite = g.dia_limite
-
+ 
                 if hoje.day > dia_limite:
-                    mes_alvo  = 1 if hoje.month == 12 else hoje.month + 1
-                    ano_alvo  = hoje.year + 1 if hoje.month == 12 else hoje.year
+                    mes_alvo = 1 if hoje.month == 12 else hoje.month + 1
+                    ano_alvo = hoje.year + 1 if hoje.month == 12 else hoje.year
                 else:
                     mes_alvo, ano_alvo = hoje.month, hoje.year
-
+ 
                 try:
                     data_alvo = date(ano_alvo, mes_alvo, dia_limite)
                 except ValueError:
                     data_alvo = date(ano_alvo, mes_alvo, 28)
-
+ 
                 nome_completo = f"{g.nome} {g.codigo} - {data_alvo.strftime('%b/%Y')}"
-
+ 
                 if not Periodo.query.filter_by(
                     grupo_filtro=g.codigo, mes=mes_alvo, ano=ano_alvo
                 ).first():
@@ -249,8 +322,7 @@ def verificar_datas_e_periodos():
                         data_limite=data_alvo, mes=mes_alvo, ano=ano_alvo, ativo=True
                     ))
                     criados += 1
-
-                    # Fecha o período anterior do mesmo grupo se ainda ativo
+ 
                     anterior = Periodo.query.filter(
                         Periodo.grupo_filtro == g.codigo,
                         Periodo.data_limite  <  data_alvo,
@@ -258,7 +330,7 @@ def verificar_datas_e_periodos():
                     ).first()
                     if anterior:
                         anterior.ativo = False
-
+ 
             if criados:
                 db.session.commit()
                 app.logger.info(f"[Rotina] {criados} novo(s) período(s) criado(s).")
@@ -269,15 +341,24 @@ def verificar_datas_e_periodos():
             f"[Rotina] FALHA ao criar novos períodos: {e}. "
             "Verifique os grupos cadastrados em /admin/grupos."
         )
-
-    # Só marca como verificado se ambas as etapas passaram sem erro crítico
+ 
+    # ── Grava lock no banco somente se ambas etapas passaram ─────────
     if etapa1_ok and etapa2_ok:
-        ultima_verificacao = hoje
+        try:
+            lock = Configuracao.query.filter_by(chave='rotina_ultima_verificacao').first()
+            if lock:
+                lock.valor = hoje_str
+            else:
+                db.session.add(Configuracao(chave='rotina_ultima_verificacao', valor=hoje_str))
+            db.session.commit()
+            app.logger.info(f"[Rotina] Lock atualizado para {hoje_str}.")
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning(f"[Rotina] Não foi possível gravar o lock: {e}")
     else:
         app.logger.warning(
-            "[Rotina] Verificação diária incompleta — será tentada novamente na próxima requisição."
+            "[Rotina] Verificação incompleta — será tentada novamente na próxima requisição."
         )
-
 # --- ROTAS DE AUTENTICAÇÃO ---
 
 @app.route('/')
@@ -665,34 +746,22 @@ def finalizar_pedido_periodo(periodo_id):
 
 @app.route('/admin/produto/historico/<int:prod_id>')
 def historico_preco(prod_id):
-    if 'usuario_id' not in session or session.get('funcao') != 'Admin': 
+    if 'usuario_id' not in session or session.get('funcao') != 'Admin':
         return redirect(url_for('login'))
-    
+ 
     produto = db.session.get(Produto, prod_id)
     if not produto:
         return redirect(url_for('admin_produtos'))
-        
-    # Busca o histórico de alterações deste produto no Log de Auditoria
+ 
+    # Filtra APENAS logs de alteração de preço — exclui PRODUTO_EDITADO
+    # e NEGOCIACAO_ALTERADA que também referenciam o mesmo produto_id
     logs = LogAuditoria.query.filter(
-        LogAuditoria.entidade == 'Produto',
+        LogAuditoria.acao        == 'PRECO_ALTERADO',
+        LogAuditoria.entidade    == 'Produto',
         LogAuditoria.entidade_id == prod_id
     ).order_by(LogAuditoria.data_hora.desc()).all()
-    
+ 
     return render_template('historico_preco.html', produto=produto, logs=logs)
-
-# ================================================================
-# INSTRUÇÃO PRECISA:
-#
-# No app.py, SUBSTITUA APENAS este trecho (linhas 683 a 692):
-#
-#   @app.route('/admin/comparativo')
-#   def comparativo_periodos():
-#       ...
-#       return render_template('comparativo_periodos.html', periodos=todos_periodos, lojas=lojas)
-#
-# PELO CÓDIGO ABAIXO.
-# NÃO apague a rota pedidos_por_loja que está logo depois.
-# ================================================================
 
 @app.route('/admin/comparativo')
 def comparativo_periodos():
@@ -851,12 +920,7 @@ def pedidos_por_loja():
     ordenar_dir     = request.args.get('dir', 'desc')          # 'asc' | 'desc'
     forn_filtrados  = request.args.getlist('forn')             # lista de fornecedores selecionados
 
-    ORDEM_LOJAS = ["Pesqueira", "Recife", "Campina Grande", "Natal", "Maceió"]
-    todas_lojas = Loja.query.all()
-    lojas = sorted(
-        todas_lojas,
-        key=lambda l: ORDEM_LOJAS.index(l.nome) if l.nome in ORDEM_LOJAS else 999
-    )
+    lojas = ordenar_lojas_global(Loja.query.all())
 
     todos_periodos = Periodo.query.order_by(
         Periodo.ano.desc(), Periodo.mes.desc(), Periodo.id.desc()
@@ -1008,12 +1072,7 @@ def exportar_pedidos_por_loja(periodo_id):
 
     periodo = (db.session.get(Periodo, periodo_id) or abort(404))
 
-    ORDEM_LOJAS = ["Pesqueira", "Recife", "Campina Grande", "Natal", "Maceió"]
-    todas_lojas = Loja.query.all()
-    lojas = sorted(
-        todas_lojas,
-        key=lambda l: ORDEM_LOJAS.index(l.nome) if l.nome in ORDEM_LOJAS else 999
-    )
+    lojas = ordenar_lojas_global(Loja.query.all())
 
     labs_q = db.session.query(Produto.laboratorio)\
         .filter_by(grupo=periodo.grupo_filtro)\
@@ -1129,12 +1188,9 @@ def excluir_usuario(user_id):
 
 # --- ROTAS DE GRUPOS ---
 
-# --- ROTAS DE GRUPOS ---
-
 @app.route('/admin/grupos', methods=['GET', 'POST'])
 def admin_grupos():
-    # 1. ADICIONE ESTA LINHA PARA PUXAR A VARIÁVEL GLOBAL
-    global ultima_verificacao 
+
 
     if 'usuario_id' not in session or session.get('funcao') != 'Admin': return redirect(url_for('login'))
     
@@ -1150,16 +1206,14 @@ def admin_grupos():
                 db.session.add(Grupo(nome=nome, codigo=codigo, dia_limite=dia))
                 db.session.commit()
                 
-                # 2. ADICIONE ESTA LINHA AQUI!
-                # Isso força o sistema a recriar os períodos no exato segundo em que a página recarregar.
-                ultima_verificacao = None 
+
                 
     grupos = Grupo.query.order_by(Grupo.dia_limite).all()
     return render_template('admin_grupos.html', grupos=grupos)
 
 @app.route('/admin/grupo/editar/<int:grupo_id>', methods=['POST'])
 def editar_grupo(grupo_id):
-    global ultima_verificacao
+
 
     if 'usuario_id' not in session or session.get('funcao') != 'Admin':
         return redirect(url_for('login'))
@@ -1204,13 +1258,12 @@ def editar_grupo(grupo_id):
             g.codigo     = novo_codigo
             g.dia_limite = novo_dia
             db.session.commit()
-            ultima_verificacao = None
+
 
     return redirect(url_for('admin_grupos'))
 
 @app.route('/admin/grupo/excluir/<int:grupo_id>')
 def excluir_grupo(grupo_id):
-    global ultima_verificacao 
 
     if 'usuario_id' not in session or session.get('funcao') != 'Admin': 
         return redirect(url_for('login'))
@@ -1239,8 +1292,7 @@ def excluir_grupo(grupo_id):
         
         db.session.commit()
         
-        # Força o sistema a reprocessar os períodos ativos na próxima requisição
-        ultima_verificacao = None 
+
         
     return redirect(url_for('admin_grupos'))
 
@@ -1263,14 +1315,21 @@ def admin_fornecedores():
 
 @app.route('/admin/fornecedor/excluir/<int:id>')
 def excluir_fornecedor(id):
-    if 'usuario_id' not in session or session.get('funcao') != 'Admin': return redirect(url_for('login'))
+    if 'usuario_id' not in session or session.get('funcao') != 'Admin':
+        return redirect(url_for('login'))
+ 
     f = db.session.get(Fornecedor, id)
     if f:
         try:
             db.session.delete(f)
             db.session.commit()
-        except:
-            db.session.rollback() 
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(
+                f'[excluir_fornecedor] Falha ao excluir fornecedor id={id} '
+                f'("{f.nome}"): {e}'
+            )
+ 
     return redirect(url_for('admin_fornecedores'))
 
 @app.route('/admin/salvar_email_fornecedor', methods=['POST'])
@@ -1497,20 +1556,26 @@ def consolidacao_pedidos(periodo_id=None):
     if not periodo_ativo:
         return "Nenhum período encontrado."
 
-    ordem_personalizada = ["Pesqueira", "Recife", "Campina Grande", "Natal", "Maceió"]
-    todas_lojas = Loja.query.all()
-    lojas = sorted(todas_lojas, key=lambda l: ordem_personalizada.index(l.nome) if l.nome in ordem_personalizada else 999)
-
+    lojas = ordenar_lojas_global(Loja.query.all())
     # Envia só a lista de laboratórios para montar as abas — SEM os dados pesados
     laboratorios = db.session.query(Produto.laboratorio)\
         .filter_by(grupo=periodo_ativo.grupo_filtro)\
         .distinct().order_by(Produto.laboratorio).all()
     laboratorios = [l[0] for l in laboratorios]
 
+    # Labs que já tiveram ao menos um e-mail enviado neste período
+    labs_enviados = {
+        f.nome
+        for f in Fornecedor.query.join(
+            EnvioEmail, EnvioEmail.fornecedor_id == Fornecedor.id
+        ).filter(EnvioEmail.periodo_id == periodo_ativo.id).all()
+    }
+
     return render_template('consolidacao.html',
                            laboratorios=laboratorios,
                            periodo=periodo_ativo,
-                           lojas=lojas)
+                           lojas=lojas,
+                           labs_enviados=labs_enviados)
 
 
 
@@ -1522,11 +1587,7 @@ def consolidacao_aba(periodo_id, laboratorio):
 
     periodo = (db.session.get(Periodo, periodo_id) or abort(404))
     
-    # Ordem personalizada das lojas para a visualização na matriz
-    ordem_personalizada = ["Pesqueira", "Recife", "Campina Grande", "Natal", "Maceió"]
-    todas_lojas = Loja.query.all()
-    lojas = sorted(todas_lojas, key=lambda l: ordem_personalizada.index(l.nome) if l.nome in ordem_personalizada else 999)
-
+    lojas = ordenar_lojas_global(Loja.query.all())
     # Busca todos os produtos do laboratório que pertencem ao grupo do período ativo
     produtos = Produto.query.filter_by(grupo=periodo.grupo_filtro, laboratorio=laboratorio)\
         .order_by(Produto.nome).all()
@@ -1594,115 +1655,221 @@ def consolidacao_aba(periodo_id, laboratorio):
                         resumo_valor_fechado=resumo_valor_fechado)
 
 @csrf.exempt
+@csrf.exempt
 @app.route('/admin/salvar_consolidacao', methods=['POST'])
 def salvar_consolidacao():
     data = request.json
     periodo_id = data.get('periodo_id')
-    if not periodo_id: return jsonify({'erro': 'Erro ID'}), 400
+    if not periodo_id:
+        return jsonify({'erro': 'Erro ID'}), 400
+ 
+    erros = []
+ 
+    # ── Bloco 1: Preços e Negociações (mais crítico — commit próprio) ─
     try:
         for item in data.get('produtos', []):
             prod_id = item['produto_id']
-            try: desc = float(item['desconto'])
-            except: desc = 0.0
-            try: bonif = float(item['bonificacao'])
-            except: bonif = 0.0
-            try: novo_preco = float(item['preco'])
+            try:   desc      = float(item['desconto'])
+            except: desc     = 0.0
+            try:   bonif     = float(item['bonificacao'])
+            except: bonif    = 0.0
+            try:   novo_preco = float(item['preco'])
             except: novo_preco = 0.0
+ 
             prod = db.session.get(Produto, prod_id)
             if prod and novo_preco > 0:
-                # FIX 7: Registra se o preço de tabela foi alterado
                 if abs(prod.preco - novo_preco) > 0.001:
-                    # FIX 9b: Log da alteração de preço na consolidação
                     registrar_log(
                         acao='PRECO_ALTERADO',
                         entidade='Produto', entidade_id=prod.id,
                         detalhe=f'Período {periodo_id} | {prod.nome}: R${prod.preco:.2f} → R${novo_preco:.2f}'
                     )
                 prod.preco = novo_preco
-            negoc = Negociacao.query.filter_by(periodo_id=periodo_id, produto_id=prod_id).first()
+ 
+            negoc = Negociacao.query.filter_by(
+                periodo_id=periodo_id, produto_id=prod_id
+            ).first()
             if not negoc:
                 negoc = Negociacao(periodo_id=periodo_id, produto_id=prod_id)
                 db.session.add(negoc)
-            # FIX 9b: Log de desconto/bonificação
             if negoc.desconto != desc or negoc.bonificacao != bonif:
                 registrar_log(
                     acao='NEGOCIACAO_ALTERADA',
                     entidade='Negociacao', entidade_id=prod_id,
-                    detalhe=f'Período {periodo_id} | Desc: {negoc.desconto}%→{desc}% | Bonif: {negoc.bonificacao}%→{bonif}%'
+                    detalhe=(
+                        f'Período {periodo_id} | '
+                        f'Desc: {negoc.desconto}%→{desc}% | '
+                        f'Bonif: {negoc.bonificacao}%→{bonif}%'
+                    )
                 )
-            negoc.desconto = desc
+            negoc.desconto    = desc
             negoc.bonificacao = bonif
-            for loja_id_str, qtd_val in item.get('qtds', {}).items():
-                loja_id = int(loja_id_str)
-                try: qtd_nova = int(qtd_val)
-                except: qtd_nova = 0
-                pedido = Pedido.query.filter_by(loja_id=loja_id, periodo_id=periodo_id).first()
-                if not pedido and qtd_nova > 0:
-                    dono = Usuario.query.filter_by(loja_id=loja_id).first()
-                    uid = dono.id if dono else session['usuario_id']
-                    pedido = Pedido(usuario_id=uid, loja_id=loja_id, periodo_id=periodo_id, status='Aberto')
-                    db.session.add(pedido)
-                    db.session.flush()
-                if pedido:
-                    item_ped = ItemPedido.query.filter_by(pedido_id=pedido.id, produto_id=prod_id).first()
-                    if item_ped:
-                        if qtd_nova > 0: item_ped.quantidade = qtd_nova
-                        else: db.session.delete(item_ped)
-                    elif qtd_nova > 0: db.session.add(ItemPedido(pedido_id=pedido.id, produto_id=prod_id, quantidade=qtd_nova))
-        for obs in data.get('observacoes', []):
-            lab = obs['laboratorio']
-            loja_id_obs = int(obs['loja_id']) if obs['loja_id'] else None
-            texto = obs['texto']
-            filtro = Observacao.loja_id == loja_id_obs if loja_id_obs else Observacao.loja_id.is_(None)
-            reg = Observacao.query.filter(Observacao.periodo_id == periodo_id, Observacao.laboratorio == lab, filtro).first()
-            if reg: reg.texto = texto
-            elif texto: db.session.add(Observacao(periodo_id=periodo_id, laboratorio=lab, loja_id=loja_id_obs, texto=texto))
-        db.session.commit()
-        return jsonify({'mensagem': 'Salvo!'})
+ 
+        db.session.commit()   # ← commit isolado para preços/negociações
+ 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'erro': str(e)}), 500
-
-
+        erros.append(f'Erro ao salvar preços/negociações: {str(e)}')
+        app.logger.error(f'[salvar_consolidacao] Bloco 1 falhou: {e}')
+ 
+    # ── Bloco 2: Quantidades por loja (commit próprio) ────────────────
+    try:
+        for item in data.get('produtos', []):
+            prod_id = item['produto_id']
+            try:   novo_preco = float(item['preco'])
+            except: novo_preco = 0.0
+ 
+            for loja_id_str, qtd_val in item.get('qtds', {}).items():
+                loja_id = int(loja_id_str)
+                try:   qtd_nova = int(qtd_val)
+                except: qtd_nova = 0
+ 
+                pedido = Pedido.query.filter_by(
+                    loja_id=loja_id, periodo_id=periodo_id
+                ).first()
+                if not pedido and qtd_nova > 0:
+                    dono = Usuario.query.filter_by(loja_id=loja_id).first()
+                    uid  = dono.id if dono else session['usuario_id']
+                    pedido = Pedido(
+                        usuario_id=uid, loja_id=loja_id,
+                        periodo_id=periodo_id, status='Aberto'
+                    )
+                    db.session.add(pedido)
+                    db.session.flush()
+ 
+                if pedido:
+                    item_ped = ItemPedido.query.filter_by(
+                        pedido_id=pedido.id, produto_id=prod_id
+                    ).first()
+                    if item_ped:
+                        if qtd_nova > 0:
+                            item_ped.quantidade = qtd_nova
+                        else:
+                            db.session.delete(item_ped)
+                    elif qtd_nova > 0:
+                        db.session.add(ItemPedido(
+                            pedido_id=pedido.id,
+                            produto_id=prod_id,
+                            quantidade=qtd_nova
+                        ))
+ 
+        db.session.commit()   # ← commit isolado para quantidades
+ 
+    except Exception as e:
+        db.session.rollback()
+        erros.append(f'Erro ao salvar quantidades: {str(e)}')
+        app.logger.error(f'[salvar_consolidacao] Bloco 2 falhou: {e}')
+ 
+    # ── Bloco 3: Observações (commit próprio) ─────────────────────────
+    try:
+        for obs in data.get('observacoes', []):
+            lab         = obs['laboratorio']
+            loja_id_obs = int(obs['loja_id']) if obs['loja_id'] else None
+            texto       = obs['texto']
+            filtro      = (
+                Observacao.loja_id == loja_id_obs
+                if loja_id_obs
+                else Observacao.loja_id.is_(None)
+            )
+            reg = Observacao.query.filter(
+                Observacao.periodo_id  == periodo_id,
+                Observacao.laboratorio == lab,
+                filtro
+            ).first()
+            if reg:
+                reg.texto = texto
+            elif texto:
+                db.session.add(Observacao(
+                    periodo_id=periodo_id,
+                    laboratorio=lab,
+                    loja_id=loja_id_obs,
+                    texto=texto
+                ))
+ 
+        db.session.commit()   # ← commit isolado para observações
+ 
+    except Exception as e:
+        db.session.rollback()
+        erros.append(f'Erro ao salvar observações: {str(e)}')
+        app.logger.error(f'[salvar_consolidacao] Bloco 3 falhou: {e}')
+ 
+    # ── Resposta ao frontend ──────────────────────────────────────────
+    if erros:
+        # Retorna 207 Multi-Status: algo foi salvo, mas houve falha parcial
+        return jsonify({
+            'mensagem': 'Salvo parcialmente. Alguns itens falharam.',
+            'erros':    erros
+        }), 207
+ 
+    return jsonify({'mensagem': 'Salvo!'})
+    
 @app.route('/admin/preparar_envio/<int:periodo_id>')
 def preparar_envio(periodo_id):
     if 'usuario_id' not in session or session.get('funcao') != 'Admin':
         return redirect(url_for('login'))
-
+ 
     periodo = (db.session.get(Periodo, periodo_id) or abort(404))
     lojas   = Loja.query.order_by(Loja.nome).all()
-
-    # Fornecedores do grupo com contagem de itens
-    laboratorios_do_grupo = db.session.query(Produto.laboratorio)\
-        .filter_by(grupo=periodo.grupo_filtro).distinct().all()
-
-    fornecedores_resumo = []
-    for lab in laboratorios_do_grupo:
-        nome_lab = lab[0]
-        forn     = Fornecedor.query.filter_by(nome=nome_lab).first()
-        email    = forn.email if forn else None
-        qtd      = db.session.query(db.func.count(ItemPedido.id))\
-            .join(Produto).join(Pedido)\
-            .filter(
-                Pedido.periodo_id  == periodo.id,
-                Produto.laboratorio == nome_lab
-            ).scalar()
-        fornecedores_resumo.append({'nome': nome_lab, 'email': email, 'qtd_itens': qtd})
-
-    # ── NOVO: todos os usuários verificados para a lista de confirmação ──
-    # Inclui admins e gerentes de loja, cada um com sua loja (se houver)
+ 
+    # Laboratórios do grupo deste período
+    labs_nomes = [
+        r[0] for r in
+        db.session.query(Produto.laboratorio)
+                  .filter_by(grupo=periodo.grupo_filtro)
+                  .distinct()
+                  .order_by(Produto.laboratorio)
+                  .all()
+    ]
+ 
+    # ── Query 1: todos os fornecedores de uma vez ────────────────────
+    fornecedores_objs = Fornecedor.query.filter(Fornecedor.nome.in_(labs_nomes)).all()
+    fornecedores_map  = {f.nome: f.email for f in fornecedores_objs}
+    forn_id_map       = {f.nome: f.id    for f in fornecedores_objs}
+ 
+    # ── Query 2: contagem de itens por laboratório de uma vez ────────
+    rows_count = db.session.query(
+        Produto.laboratorio,
+        db.func.count(ItemPedido.id).label('qtd')
+    ).join(ItemPedido, ItemPedido.produto_id == Produto.id)\
+     .join(Pedido,     Pedido.id == ItemPedido.pedido_id)\
+     .filter(
+         Pedido.periodo_id   == periodo.id,
+         Produto.laboratorio.in_(labs_nomes)
+     ).group_by(Produto.laboratorio).all()
+ 
+    contagem_map = {r.laboratorio: int(r.qtd) for r in rows_count}
+ 
+    # ── Query 3: fornecedores já enviados neste período ──────────────
+    ja_enviados_ids = {
+        e.fornecedor_id
+        for e in EnvioEmail.query.filter_by(periodo_id=periodo.id).all()
+    }
+ 
+    # Monta resumo sem mais queries
+    fornecedores_resumo = [
+        {
+            'nome':       nome_lab,
+            'email':      fornecedores_map.get(nome_lab),
+            'qtd_itens':  contagem_map.get(nome_lab, 0),
+            'ja_enviado': forn_id_map.get(nome_lab) in ja_enviados_ids,
+        }
+        for nome_lab in labs_nomes
+    ]
+ 
     gerentes_disponiveis = Usuario.query.filter_by(verificado=True)\
         .order_by(Usuario.funcao, Usuario.nome).all()
-
+ 
     return render_template(
         'admin_envio_email.html',
         periodo=periodo,
         lojas=lojas,
         fornecedores_resumo=fornecedores_resumo,
-        gerentes_disponiveis=gerentes_disponiveis,   # ← novo
+        gerentes_disponiveis=gerentes_disponiveis,
     )
-
-
+ 
+ 
+# ── FUNÇÃO 2: processar_envio_massa ─────────────────────────────────────────
+# Retorna 202 imediatamente; envio roda em thread com proteção de duplo envio.
 @csrf.exempt
 @app.route('/admin/processar_envio_massa', methods=['POST'])
 def processar_envio_massa():
@@ -1714,188 +1881,289 @@ def processar_envio_massa():
     remetente_senha = revelar_senha(admin_user.smtp_senha)
     smtp_server     = admin_user.smtp_server or 'smtp.locaweb.com.br'
     smtp_port       = admin_user.smtp_port   or 587
+    usuario_id_sess = admin_user.id
 
     if not remetente_senha:
         return jsonify({
             'erro': f'O usuário {admin_user.nome} não tem senha de e-mail configurada.'
         }), 400
 
-    periodo_id          = request.form.get('periodo_id')
-    periodo             = (db.session.get(Periodo, periodo_id) or abort(404))
+    periodo_id             = request.form.get('periodo_id')
+    periodo                = (db.session.get(Periodo, periodo_id) or abort(404))
     lojas_selecionadas_ids = request.form.getlist('lojas_ids')
-    labs_selecionados   = request.form.getlist('labs_selecionados')
-    lojas_filtradas     = [l for l in Loja.query.all() if str(l.id) in lojas_selecionadas_ids]
+    labs_selecionados      = request.form.getlist('labs_selecionados')
+    lojas_filtradas        = [l for l in Loja.query.all() if str(l.id) in lojas_selecionadas_ids]
 
-    # ── Destinatários de confirmação selecionados na tela ───────────────
-    confirmacao_ids = request.form.getlist('confirmacao_ids')   # IDs de usuários
+    # ── Destinatários de confirmação ────────────────────────────────────
+    confirmacao_ids   = request.form.getlist('confirmacao_ids')
     emails_extras_raw = request.form.get('emails_extras', '').strip()
 
-    # Busca e-mails dos usuários marcados
     emails_confirmacao = []
     if confirmacao_ids:
-        usuarios_marcados = Usuario.query.filter(
+        usuarios_marcados  = Usuario.query.filter(
             Usuario.id.in_([int(i) for i in confirmacao_ids]),
             Usuario.verificado == True
         ).all()
         emails_confirmacao = [u.email for u in usuarios_marcados if u.email]
 
-    # Adiciona e-mails extras digitados manualmente
     if emails_extras_raw:
         extras = [e.strip() for e in emails_extras_raw.split(',') if e.strip()]
         emails_confirmacao += extras
 
-    # Remove duplicatas mantendo ordem
     emails_confirmacao = list(dict.fromkeys(emails_confirmacao))
 
-    # ── Mês e ano por extenso para o assunto ────────────────────────────
+    # ── Mês por extenso ─────────────────────────────────────────────────
     MESES = {
         1:'Janeiro', 2:'Fevereiro', 3:'Março',    4:'Abril',
         5:'Maio',    6:'Junho',     7:'Julho',     8:'Agosto',
         9:'Setembro',10:'Outubro', 11:'Novembro', 12:'Dezembro'
     }
-    mes_extenso = MESES.get(periodo.mes, str(periodo.mes))
+    mes_extenso       = MESES.get(periodo.mes, str(periodo.mes))
     assunto_forn_base = f"Pedidos Rancho Alegre {mes_extenso}/{periodo.ano}"
 
-    enviados_log = []
-    erros_log    = []
+    # ── Proteção contra duplo envio: filtra labs já enviados ────────────
+    ja_enviados_ids = {
+        e.fornecedor_id
+        for e in EnvioEmail.query.filter_by(periodo_id=periodo.id).all()
+    }
+    fornecedores_map = {
+        f.nome: f for f in Fornecedor.query.filter(
+            Fornecedor.nome.in_(labs_selecionados)
+        ).all()
+    }
 
+    labs_para_enviar = []
+    pulados_log      = []
     for lab_nome in labs_selecionados:
-        forn = Fornecedor.query.filter_by(nome=lab_nome).first()
+        forn = fornecedores_map.get(lab_nome)
+        if forn and forn.id in ja_enviados_ids:
+            pulados_log.append(f"{lab_nome}: já enviado neste período (ignorado).")
+        else:
+            labs_para_enviar.append(lab_nome)
 
-        if not (forn and forn.email):
-            erros_log.append(f"{lab_nome}: Sem e-mail cadastrado.")
-            continue
+    if not labs_para_enviar:
+        return jsonify({
+            'job_id':    None,
+            'enviados':  [],
+            'erros':     pulados_log,
+            'concluido': True,
+        })
 
-        try:
-            excel_bytes = _excel_unico(
-                periodo, lab_nome, lojas_filtradas, db, Produto, ItemPedido, Pedido
-            )
+    # ── Cria job e dispara thread ────────────────────────────────────────
+    job_id = str(uuid.uuid4())
+    _JOBS[job_id] = {
+        'total':     len(labs_para_enviar),
+        'feitos':    0,
+        'enviados':  list(pulados_log),
+        'erros':     [],
+        'concluido': False,
+    }
 
-            # ── E-MAIL 1: Fornecedor ─────────────────────────────────────
-            assunto_forn = f"{assunto_forn_base} - {lab_nome}"
-            corpo_forn   = (
-                f"Prezado(a),\n\n"
-                f"Segue em anexo os pedidos, conforme negociado.\n\n"
-                f"Solicitamos, por gentileza, a confirmação do prazo de "
-                f"faturamento e entrega.\n\n"
-                f"Atenciosamente,\n"
-                f"Setor de Compras\n"
-                f"Lojas Rancho Alegre"
-            )
+    periodo_id_snap = periodo.id
+    lojas_ids_snap  = [l.id for l in lojas_filtradas]
 
-            enviar_email_pedido(
-                remetente_email=remetente_email,
-                remetente_senha=remetente_senha,
-                smtp_server=smtp_server,
-                smtp_port=smtp_port,
-                destinatario=forn.email,
-                lista_cc=[remetente_email],
-                assunto=assunto_forn,
-                corpo=corpo_forn,
-                anexo_bytes=excel_bytes,
-                nome_anexo=f"Pedido_{lab_nome.replace(' ', '_')}.xlsx",
-            )
+    def _worker():
+        INTERVALO_ENTRE_FORNECEDORES = 5
 
-            # ── E-MAIL 2: Confirmação para destinatários selecionados ────
-            if emails_confirmacao:
-                nomes_lojas  = ", ".join(l.nome for l in lojas_filtradas)
-                corpo_confirm = (
-                    f"Olá,\n\n"
-                    f"O pedido do fornecedor {lab_nome} referente ao período "
-                    f"{periodo.nome} foi enviado com sucesso.\n\n"
-                    f"Lojas incluídas: {nomes_lojas}\n\n"
-                    f"Segue em anexo a planilha enviada ao fornecedor para sua conferência.\n\n"
-                    f"Atenciosamente,\n"
-                    f"Setor de Compras\n"
-                    f"Lojas Rancho Alegre"
-                )
-                for email_dest in emails_confirmacao:
-                    try:
-                        enviar_email_pedido(
-                            remetente_email=remetente_email,
-                            remetente_senha=remetente_senha,
-                            smtp_server=smtp_server,
-                            smtp_port=smtp_port,
-                            destinatario=email_dest,
-                            lista_cc=[remetente_email],
-                            assunto=f"[Confirmação] {assunto_forn}",
-                            corpo=corpo_confirm,
-                            anexo_bytes=excel_bytes,
-                            nome_anexo=f"Pedido_{lab_nome.replace(' ', '_')}.xlsx",
+        with app.app_context():
+            periodo_obj = db.session.get(Periodo, periodo_id_snap)
+            lojas_obj   = [l for l in (db.session.get(Loja, lid) for lid in lojas_ids_snap) if l]
+
+            for idx, lab_nome in enumerate(labs_para_enviar):
+                forn = Fornecedor.query.filter_by(nome=lab_nome).first()
+
+                if not (forn and forn.email):
+                    _JOBS[job_id]['erros'].append(f"{lab_nome}: Sem e-mail cadastrado.")
+                    _JOBS[job_id]['feitos'] += 1
+                    continue
+
+                if EnvioEmail.query.filter_by(periodo_id=periodo_obj.id, fornecedor_id=forn.id).first():
+                    _JOBS[job_id]['enviados'].append(f"{lab_nome}: já enviado (ignorado na thread).")
+                    _JOBS[job_id]['feitos'] += 1
+                    continue
+
+                try:
+                    excel_bytes = _excel_unico(
+                        periodo_obj, lab_nome, lojas_obj, db, Produto, ItemPedido, Pedido, Negociacao
+                    )
+
+                    # ── E-MAIL 1: Fornecedor ─────────────────────────────
+                    assunto_forn = f"{assunto_forn_base} - {lab_nome}"
+                    corpo_forn   = (
+                        f"Prezado(a),\n\n"
+                        f"Segue em anexo os pedidos, conforme negociado.\n\n"
+                        f"Solicitamos, por gentileza, a confirmação do prazo de "
+                        f"faturamento e entrega.\n\n"
+                        f"Atenciosamente,\n"
+                        f"Setor de Compras\n"
+                        f"Lojas Rancho Alegre"
+                    )
+                    enviar_email_pedido(
+                        remetente_email=remetente_email,
+                        remetente_senha=remetente_senha,
+                        smtp_server=smtp_server,
+                        smtp_port=smtp_port,
+                        destinatario=forn.email,
+                        lista_cc=[remetente_email],
+                        assunto=assunto_forn,
+                        corpo=corpo_forn,
+                        anexo_bytes=excel_bytes,
+                        nome_anexo=f"Pedido_{lab_nome.replace(' ', '_')}.xlsx",
+                    )
+
+                    # ── E-MAIL 2: Confirmação — UM único e-mail para todos ───
+                    if emails_confirmacao:
+                        nomes_lojas   = ", ".join(l.nome for l in lojas_obj)
+                        corpo_confirm = (
+                            f"Olá,\n\n"
+                            f"O pedido do fornecedor {lab_nome} referente ao período "
+                            f"{periodo_obj.nome} foi enviado com sucesso.\n\n"
+                            f"Lojas incluídas: {nomes_lojas}\n\n"
+                            f"Segue em anexo a planilha enviada ao fornecedor para sua conferência.\n\n"
+                            f"Atenciosamente,\n"
+                            f"Setor de Compras\n"
+                            f"Lojas Rancho Alegre"
                         )
-                    except Exception as eg:
-                        app.logger.warning(
-                            f"Falha ao notificar {email_dest} sobre {lab_nome}: {eg}"
+                        # Primeiro da lista é o destinatário; demais ficam em CC
+                        dest_confirm = emails_confirmacao[0]
+                        cc_confirm   = emails_confirmacao[1:] + [remetente_email]
+                        try:
+                            enviar_email_pedido(
+                                remetente_email=remetente_email,
+                                remetente_senha=remetente_senha,
+                                smtp_server=smtp_server,
+                                smtp_port=smtp_port,
+                                destinatario=dest_confirm,
+                                lista_cc=cc_confirm,
+                                assunto=f"[Confirmação] {assunto_forn}",
+                                corpo=corpo_confirm,
+                                anexo_bytes=excel_bytes,
+                                nome_anexo=f"Pedido_{lab_nome.replace(' ', '_')}.xlsx",
+                            )
+                        except Exception as eg:
+                            app.logger.warning(
+                                f"Falha ao enviar confirmação de {lab_nome}: {eg}"
+                            )
+
+                    # ── Registra envio ───────────────────────────────────
+                    db.session.add(EnvioEmail(
+                        periodo_id    = periodo_obj.id,
+                        fornecedor_id = forn.id,
+                        usuario_id    = usuario_id_sess,
+                    ))
+                    registrar_log(
+                        acao='EMAIL_ENVIADO',
+                        entidade='Fornecedor', entidade_id=forn.id,
+                        detalhe=(
+                            f'Período {periodo_obj.id} | Fornecedor: {forn.email} | '
+                            f'Confirmação: {", ".join(emails_confirmacao) or "nenhum"}'
                         )
+                    )
+                    db.session.commit()
 
-            dest_confirmacao_str = ', '.join(emails_confirmacao) if emails_confirmacao else 'nenhum'
-            enviados_log.append(
-                f"{lab_nome} → fornecedor: {forn.email} | "
-                f"confirmação: {dest_confirmacao_str}"
-            )
+                    dest_str = ', '.join(emails_confirmacao) if emails_confirmacao else 'nenhum'
+                    _JOBS[job_id]['enviados'].append(
+                        f"{lab_nome} → fornecedor: {forn.email} | confirmação: {dest_str}"
+                    )
+                    app.logger.info(f"E-mails enviados para {lab_nome}.")
 
-            registrar_log(
-                acao='EMAIL_ENVIADO',
-                entidade='Fornecedor', entidade_id=forn.id,
-                detalhe=(
-                    f'Período {periodo_id} | Fornecedor: {forn.email} | '
-                    f'Confirmação: {dest_confirmacao_str}'
-                )
-            )
-            db.session.commit()
-            app.logger.info(
-                f"E-mails enviados para {lab_nome} "
-                f"(fornecedor + {len(emails_confirmacao)} confirmação)."
-            )
+                except Exception as e:
+                    db.session.rollback()
+                    _JOBS[job_id]['erros'].append(f"Erro {lab_nome}: {str(e)}")
+                    app.logger.error(f"Falha ao enviar e-mail para {lab_nome}: {e}")
 
-        except Exception as e:
-            erros_log.append(f"Erro {lab_nome}: {str(e)}")
-            app.logger.error(f"Falha ao enviar e-mail para {lab_nome}: {e}")
+                finally:
+                    _JOBS[job_id]['feitos'] += 1
 
-    return jsonify({'enviados': enviados_log, 'erros': erros_log})
+                if idx < len(labs_para_enviar) - 1:
+                    time.sleep(INTERVALO_ENTRE_FORNECEDORES)
 
+            _JOBS[job_id]['concluido'] = True
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    return jsonify({'job_id': job_id, 'total': len(labs_para_enviar)}), 202
+ 
+# ── FUNÇÃO 3: status_envio (NOVA — adicione após processar_envio_massa) ──────
+# Endpoint de polling que o frontend consulta a cada 3s para saber o progresso.
+ 
+@app.route('/admin/status_envio/<job_id>')
+def status_envio(job_id):
+    """Polling endpoint: retorna progresso do job de envio em background."""
+    if 'usuario_id' not in session or session.get('funcao') != 'Admin':
+        return jsonify({'erro': 'Não autorizado'}), 401
+ 
+    job = _JOBS.get(job_id)
+    if job is None:
+        return jsonify({'erro': 'Job não encontrado'}), 404
+ 
+    return jsonify({
+        'total':     job['total'],
+        'feitos':    job['feitos'],
+        'enviados':  job['enviados'],
+        'erros':     job['erros'],
+        'concluido': job['concluido'],
+    })
 @app.route('/admin/exportar_excel/<int:periodo_id>')
 def exportar_excel(periodo_id):
     if 'usuario_id' not in session or session.get('funcao') != 'Admin':
         return redirect(url_for('login'))
-
+ 
     periodo = (db.session.get(Periodo, periodo_id) or abort(404))
-
-    # Ordem personalizada das lojas
-    _ordem = ["Pesqueira", "Recife", "Campina Grande", "Natal", "Maceió"]
-    lojas  = sorted(Loja.query.all(), key=lambda l: _ordem.index(l.nome) if l.nome in _ordem else 999)
-
+ 
+    lojas = ordenar_lojas_global(Loja.query.all())
+ 
     produtos = Produto.query.filter_by(
         grupo=periodo.grupo_filtro
     ).order_by(Produto.laboratorio, Produto.nome).all()
-
+ 
+    ids_produtos = [p.id for p in produtos]
+ 
+    # ── 1 query para todas as quantidades (era N×M queries) ─────────
+    rows_qtd = db.session.query(
+        ItemPedido.produto_id,
+        Pedido.loja_id,
+        db.func.sum(ItemPedido.quantidade).label('total')
+    ).join(Pedido, Pedido.id == ItemPedido.pedido_id)\
+     .filter(
+         Pedido.periodo_id        == periodo.id,
+         ItemPedido.produto_id.in_(ids_produtos)
+     ).group_by(ItemPedido.produto_id, Pedido.loja_id).all()
+ 
+    qtd_map = {(r.produto_id, r.loja_id): int(r.total or 0) for r in rows_qtd}
+ 
+    # ── 1 query para todas as negociações ───────────────────────────
+    negs = {
+        n.produto_id: n
+        for n in Negociacao.query.filter_by(periodo_id=periodo.id)
+                           .filter(Negociacao.produto_id.in_(ids_produtos)).all()
+    }
+ 
     dados_lab = {}
     for p in produtos:
         if p.laboratorio not in dados_lab:
             dados_lab[p.laboratorio] = []
-        negoc   = Negociacao.query.filter_by(periodo_id=periodo.id, produto_id=p.id).first()
+ 
+        negoc    = negs.get(p.id)
         desconto = negoc.desconto    if negoc else 0.0
         bonif    = negoc.bonificacao if negoc else 0.0
-        qtds_lojas = {}
-        total_prod = 0
-        for loja in lojas:
-            qtd = db.session.query(db.func.sum(ItemPedido.quantidade)).join(Pedido).filter(
-                ItemPedido.produto_id == p.id,
-                Pedido.loja_id        == loja.id,
-                Pedido.periodo_id     == periodo.id
-            ).scalar() or 0
-            qtds_lojas[loja.id] = qtd
-            total_prod += qtd
+ 
+        qtds_lojas = {loja.id: qtd_map.get((p.id, loja.id), 0) for loja in lojas}
+        total_prod = sum(qtds_lojas.values())
+ 
         dados_lab[p.laboratorio].append({
-            'nome': p.nome, 'caixa': p.unidade_caixa, 'preco': p.preco,
-            'qtds': qtds_lojas, 'total': total_prod,
-            'desconto': desconto, 'bonificacao': bonif
+            'nome':       p.nome,
+            'caixa':      p.unidade_caixa,
+            'preco':      p.preco,
+            'qtds':       qtds_lojas,
+            'total':      total_prod,
+            'desconto':   desconto,
+            'bonificacao': bonif,
         })
-
-    # FIX 11: geração delegada ao excel_service
+ 
     output       = gerar_excel_consolidado(periodo, lojas, dados_lab)
     nome_arquivo = f"Consolidado_{periodo.nome.replace('/', '-')}.xlsx"
-
+ 
     return send_file(
         output,
         download_name=nome_arquivo,

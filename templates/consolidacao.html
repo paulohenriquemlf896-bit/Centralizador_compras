@@ -78,6 +78,9 @@
                         onclick="carregarAba(this)">
                     {{ lab }}
                     <span class="badge bg-secondary ms-1 badge-total" style="display:none;"></span>
+                    {% if lab in labs_enviados %}
+                    <span class="badge ms-1" style="background:#1565c0; font-size:0.65rem;" title="E-mail enviado ao fornecedor neste período">✉</span>
+                    {% endif %}
                 </button>
             </li>
             {% endfor %}
@@ -109,6 +112,11 @@
     <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script>
         const PERIODO_ID = document.getElementById('periodo_id_hidden').value;
+
+        // Formata inteiro com ponto como separador de milhar (ex: 1.000)
+        function fmtQtd(n) {
+            return parseInt(n || 0).toLocaleString('de-DE');
+        }
 
         // ── FIX 5: CONTROLE DE ALTERAÇÕES NÃO SALVAS ─────────────────────────
         let _temAlteracoes = false;
@@ -148,7 +156,7 @@
 
                     // Badge com total pedido desta aba
                     const total = Array.from(pane.querySelectorAll('.valor-qtd-total'))
-                        .reduce((s, el) => s + (parseInt(el.textContent) || 0), 0);
+                        .reduce((s, el) => s + (parseInt(el.textContent.replace(/\./g, '')) || 0), 0);
                     if (total > 0) {
                         const badge = btn.querySelector('.badge-total');
                         badge.textContent = total;
@@ -166,6 +174,25 @@
                             marcarAlterado();
                             const tr = el.closest('tr');
                             if (tr) tr.dataset.alterado = 'true';
+                        });
+                    });
+
+                    // Formata inputs de quantidade com separador de milhar
+                    pane.querySelectorAll('.loja-input').forEach(input => {
+                        // Exibe formatado ao carregar
+                        const v = parseInt(input.value) || 0;
+                        if (v >= 1000) input.value = fmtQtd(v);
+
+                        // Ao focar: remove formatação para edição limpa
+                        input.addEventListener('focus', function() {
+                            this.value = this.value.replace(/\./g, '');
+                            this.select();
+                        });
+
+                        // Ao sair: reaplica formatação
+                        input.addEventListener('blur', function() {
+                            const num = parseInt(this.value.replace(/\./g, '')) || 0;
+                            this.value = num >= 1000 ? fmtQtd(num) : num;
                         });
                     });
                 })
@@ -203,10 +230,10 @@
             
             let soma = 0;
             linha.querySelectorAll('.loja-input').forEach(i => { 
-                const v = parseInt(i.value); 
+                const v = parseInt(i.value.replace(/\./g, '')); 
                 if (!isNaN(v)) soma += v; 
             });
-            linha.querySelector('.valor-qtd-total').innerText = soma;
+            linha.querySelector('.valor-qtd-total').innerText = fmtQtd(soma);
             
             const preco = parseFloat(linha.querySelector('.preco-tab').value) || 0;
             const desc  = parseFloat(linha.querySelector('.desconto').value)  || 0;
@@ -250,7 +277,7 @@
                 });
                 
                 // Soma a quantidade total geral da linha
-                totalGeral += parseInt(tr.querySelector('.valor-qtd-total')?.textContent) || 0;
+                totalGeral += parseInt(tr.querySelector('.valor-qtd-total')?.textContent.replace(/\./g, '')) || 0;
                 
                 // Soma o valor financeiro da linha
                 const textoFechado = tr.querySelector('.preco-final')?.textContent.trim().replace(/\./g, '').replace(',', '.') || '0';
@@ -342,7 +369,7 @@
             document.querySelectorAll('tbody tr[data-prod-id]').forEach(tr => {
                 if (tr.dataset.alterado !== 'true') return;
                 const qtds = {};
-                tr.querySelectorAll('.loja-input').forEach(i => { qtds[i.dataset.lojaId] = i.value; });
+                tr.querySelectorAll('.loja-input').forEach(i => { qtds[i.dataset.lojaId] = i.value.replace(/\./g, ''); });
                 produtos.push({
                     produto_id:  tr.dataset.prodId,
                     preco:       tr.querySelector('.preco-tab').value,

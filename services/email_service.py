@@ -4,7 +4,6 @@ Responsável pelo envio de e-mails SMTP do sistema.
 Extraído de app.py para separar lógica de negócio das rotas Flask.
 """
 import smtplib
-import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -22,23 +21,21 @@ def enviar_email_pedido(
     corpo: str,
     anexo_bytes,
     nome_anexo: str,
-    intervalo_segundos: int = 10
 ) -> None:
     """
     Envia um e-mail com anexo Excel via SMTP.
 
     Parâmetros:
-        remetente_email    — e-mail do remetente (admin)
-        remetente_senha    — senha SMTP (já descriptografada)
-        smtp_server        — servidor SMTP (ex: email-ssl.com.br)
-        smtp_port          — porta SMTP (465 = SSL, 587 = TLS)
-        destinatario       — e-mail do fornecedor
-        lista_cc           — lista de e-mails em cópia
-        assunto            — assunto do e-mail
-        corpo              — texto do corpo
-        anexo_bytes        — BytesIO com o Excel gerado
-        nome_anexo         — nome do arquivo .xlsx
-        intervalo_segundos — pausa entre envios para não ser bloqueado pelo SMTP
+        remetente_email — e-mail do remetente (admin)
+        remetente_senha — senha SMTP (já descriptografada)
+        smtp_server     — servidor SMTP (ex: email-ssl.com.br)
+        smtp_port       — porta SMTP (465 = SSL, 587 = TLS)
+        destinatario    — e-mail do fornecedor
+        lista_cc        — lista de e-mails em cópia
+        assunto         — assunto do e-mail
+        corpo           — texto do corpo
+        anexo_bytes     — BytesIO com o Excel gerado
+        nome_anexo      — nome do arquivo .xlsx
 
     Lança:
         Exception — qualquer erro de conexão ou autenticação SMTP
@@ -72,9 +69,7 @@ def enviar_email_pedido(
     finally:
         server.quit()
 
-    # Pausa para não ser bloqueado por anti-spam
-    if intervalo_segundos > 0:
-        time.sleep(intervalo_segundos)
+
 
 
 def montar_corpo_pedido(lab_nome: str, periodo_nome: str) -> str:

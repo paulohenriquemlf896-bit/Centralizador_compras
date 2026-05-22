@@ -73,28 +73,28 @@
             {% endfor %}
         </tbody>
         <tfoot>
-            <tr id="linha-resumo" style="background-color:#1a237e; color:#fff; font-weight:bold; font-size:0.85rem;">
-                <td colspan="2" class="text-center" style="letter-spacing:1px;">📊 RESUMO</td>
+            <tr id="linha-resumo" style="background-color:#fff; color:#1a237e; font-weight:bold; font-size:0.85rem; border-top:2px solid #1a237e;">
+                <td colspan="2" class="text-center" style="letter-spacing:1px; border-right:2px solid #1a237e;">📊 RESUMO</td>
 
                 {% for loja in lojas %}
-                <td class="text-center resumo-loja-{{ loja.id }}" style="background-color:#283593;">
+                <td class="text-center resumo-loja-{{ loja.id }}" style="color:#283593;">
                     {{ resumo_por_loja.get(loja.id, 0) }}
                 </td>
                 {% endfor %}
 
-                <td class="text-center resumo-total-geral" style="background-color:#b71c1c;">
+                <td class="text-center resumo-total-geral" style="color:#b71c1c; border-left:2px solid #b71c1c; border-right:2px solid #b71c1c;">
                     {{ resumo_total_geral }}
                 </td>
 
-                <td style="background-color:#333;"></td>
-                <td style="background-color:#333;"></td>
-                <td style="background-color:#333;"></td>
+                <td></td>
+                <td></td>
+                <td></td>
 
-                <td style="background-color:#1b5e20;">
+                <td style="color:#1b5e20; font-weight:bold;">
                     R$ <span class="resumo-valor-fechado">{{ "%.2f"|format(resumo_valor_fechado)|replace(".", ",") }}</span>
                 </td>
 
-                <td style="background-color:#333;"></td>
+                <td></td>
             </tr>
         </tfoot>
     </table>
